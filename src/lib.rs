@@ -3,25 +3,43 @@
 use gloo_net::http::Request;
 use wasm_bindgen::prelude::*;
 use serde::{Serialize, Deserialize};
-use serde_json::Value;
 use lazy_static::lazy_static;
 
-use rsa::pkcs1v15::{SigningKey, VerifyingKey};
-use rsa::signature::{RandomizedSigner, Signature, Verifier};
+use rsa::pkcs1v15::SigningKey;
+use rsa::signature::{RandomizedSigner, Signature};
 use rsa::{pkcs8::DecodePrivateKey, pkcs8::EncodePublicKey, pkcs8::EncodePrivateKey, pkcs8::LineEnding, RsaPrivateKey, RsaPublicKey};
 use sha2::{Digest, Sha256};
 use orion::{aead, kdf};
 use base64::{encode, decode};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
+use std::fmt::{self, Debug};
+use url::Url;
+
+#[wasm_bindgen]
+extern "C" {
+    // Use `js_namespace` here to bind `console.log(..)` instead of just
+    // `log(..)`
+    #[wasm_bindgen(js_namespace = console)]
+    fn log(s: &str);
+}
+
+#[wasm_bindgen]
+extern "C" {
+    #[wasm_bindgen(js_namespace = Date, js_name = now)]
+    fn date_now() -> f64;
+}
 
 #[wasm_bindgen(getter_with_clone)]
 #[derive(Default, Clone)]
 pub struct EnigmatickState {
+    authenticated: bool,
+    
     // this is stored in state because derivation is expensive
     derived_key: Option<String>,
 
     // the keystore is in the profile, but it's stringified
-    profile: Option<UserResponse>,
+    profile: Option<Profile>,
 
     // this is the un-stringified version of the keystore from the profile
     // it includes the encrypted data stored on the server accessible via
@@ -47,12 +65,12 @@ impl EnigmatickState {
         self.derived_key.clone()
     }
 
-    pub fn set_profile(&mut self, profile: UserResponse) -> Self {
+    pub fn set_profile(&mut self, profile: Profile) -> Self {
         self.profile = Option::from(profile);
         self.clone()
     }
 
-    pub fn get_profile(&self) -> Option<UserResponse> {
+    pub fn get_profile(&self) -> Option<Profile> {
         self.profile.clone()
     }
 
@@ -72,6 +90,10 @@ impl EnigmatickState {
 
     pub fn get_client_private_key_pem(&self) -> Option<String> {
         self.client_private_key_pem.clone()
+    }
+
+    pub fn is_authenticated(&self) -> bool {
+        self.authenticated
     }
 }
 
@@ -119,7 +141,7 @@ pub struct NewUser {
 
 #[wasm_bindgen(getter_with_clone)]
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
-pub struct UserResponse {
+pub struct Profile {
     pub client_public_key: String,
     pub created_at: String,
     pub display_name: String,
@@ -146,7 +168,7 @@ pub async fn get_state() -> EnigmatickState {
 #[wasm_bindgen]
 pub async fn authenticate(username: String,
                           password: String,
-                          passphrase: String) -> Option<UserResponse> {
+                          passphrase: String) -> Option<Profile> {
 
     #[derive(Serialize, Debug, Clone)]
     struct AuthenticationData {
@@ -166,7 +188,9 @@ pub async fn authenticate(username: String,
                 let user = y.json().await.ok();
                 
                 if let Ok(mut x) = state.try_lock() {
-                    let user: UserResponse = user.clone().unwrap();
+                    x.authenticated = true;
+                    
+                    let user: Profile = user.clone().unwrap();
                     x.set_profile(user.clone());
 
                     let keystore: KeyStore = serde_json::from_str(&user.keystore).unwrap();
@@ -200,7 +224,7 @@ pub async fn authenticate(username: String,
 pub async fn create_user(username: String,
                          display_name: String,
                          password: String,
-                         passphrase: String) -> Option<UserResponse> {
+                         passphrase: String) -> Option<Profile> {
     let key = get_key_pair();
 
     if let (Ok(client_public_key),
@@ -244,7 +268,7 @@ pub async fn create_user(username: String,
                             let user = y.json().await.ok();
                             
                             if let Ok(mut x) = state.try_lock() {
-                                let user: UserResponse = user.clone().unwrap();
+                                let user: Profile = user.clone().unwrap();
                                 x.set_profile(user.clone());
                                 x.set_derived_key(encoded_derived_key);
                                 x.set_keystore(serde_json::from_str(&user.keystore).unwrap());
@@ -261,6 +285,291 @@ pub async fn create_user(username: String,
                 } else {
                     Option::None
                 }
+            } else {
+                Option::None
+            }
+        } else {
+            Option::None
+        }
+    } else {
+        Option::None
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum Method {
+    Get,
+    Post
+}
+
+impl fmt::Display for Method {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        Debug::fmt(self, f)
+    }
+}
+
+#[derive(Clone)]
+pub struct SignParams {
+    pub url: String,
+    pub body: Option<String>,
+    pub method: Method,
+}
+
+#[derive(Default, Debug)]
+pub struct SignResponse {
+    pub signature: String,
+    pub date: String,
+    pub digest: Option<String>,
+}
+
+pub fn sign(params: SignParams) -> SignResponse {
+    // (request-target): post /users/justin/inbox
+    // host: ser.endipito.us
+    // date: Tue, 20 Dec 2022 22:02:48 GMT
+    // digest: sha-256=uus37v4gf3z6ze+jtuyk+8xsT01FhYOi/rOoDfFV1u4=
+
+    log("in sign");
+    
+    let digest = {
+        if let Some(body) = params.body {
+            let mut hasher = Sha256::new();
+            hasher.update(body.as_bytes());
+            let hashed = base64::encode(hasher.finalize());
+            Option::from(format!("sha-256={}", hashed))
+        } else {
+            Option::None
+        }
+    };
+
+    log("after digest");
+
+    let url = Url::parse(&params.url).unwrap();
+    let host = url.host().unwrap().to_string();
+    let request_target = format!("{} {}",
+                                 params.method.to_string().to_lowercase(),
+                                 url.path());
+
+    log("after request_target");
+
+    let window = web_sys::window().expect("should have a window in this context");
+    // let performance = window
+    //     .performance()
+    //     .expect("performance should be available");
+
+    fn perf_to_system(amt: f64) -> std::time::SystemTime {
+        let secs = (amt as u64) / 1_000;
+        let nanos = ((amt as u32) % 1_000) * 1_000_000;
+        std::time::UNIX_EPOCH + std::time::Duration::new(secs, nanos)
+    }
+
+    let d = date_now();
+    log(&format!("now: {:#?}", d));
+    
+    let now = perf_to_system(d);
+
+    log("after now");
+    
+    let date = httpdate::fmt_http_date(now);
+
+    log(&format!("date: {:#?}", date));
+    log("after date");
+
+    let state = &*ENIGMATICK_STATE;
+
+    log("after state");
+                            
+    if let (Ok(x), Some(digest)) = (state.try_lock(), digest) {
+        if let (Some(y), Some(profile)) = (&x.client_private_key_pem, &x.profile) {
+
+            log("in big if");
+            
+            let private_key = RsaPrivateKey::from_pkcs8_pem(y).unwrap();
+            let signing_key = SigningKey::<Sha256>::new_with_prefix(private_key);
+            
+            let structured_data = format!(
+                "(request-target): {}\nhost: {}\ndate: {}\ndigest: {}",
+                request_target,
+                host,
+                date,
+                digest
+            );
+
+            log("after structured data");
+            
+            let mut rng = rand::thread_rng();
+            let signature = signing_key.sign_with_rng(&mut rng, structured_data.as_bytes());
+
+            SignResponse {
+                signature: format!(
+                    "keyId=\"https://enigmatick.jdt.dev/user/{}#client-key\",headers=\"(request-target) host date digest\",signature=\"{}\"",
+                    profile.username,
+                    base64::encode(signature.as_bytes())),
+                date,
+                digest: Option::from(digest)
+            }
+        } else {
+            SignResponse::default()
+        }
+    } else {
+        SignResponse::default()
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct ApTag {
+    #[serde(rename = "type")]
+    kind: String,
+    name: String,
+    href: String,
+}
+
+#[derive(Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ApNote {
+    #[serde(rename = "@context")]
+    context: String,
+    #[serde(rename = "type")]
+    kind: String,
+    to: Vec<String>,
+    tag: Vec<ApTag>,
+    attributed_to: String,
+    content: String,
+}
+
+impl From<SendParams> for ApNote {
+    fn from(params: SendParams) -> Self {
+        let tag = params.recipients.iter().map(|(x, y)| ApTag { kind: "Mention".to_string(), name: x.to_string(), href: y.to_string()}).collect::<Vec<ApTag>>();
+        
+        ApNote {
+            context: "https://www.w3.org/ns/activitystreams".to_string(),
+            kind: "Note".to_string(),
+            to: params.recipients.into_values().collect(),
+            tag,
+            content: params.content,
+            ..Default::default()
+        }
+    }
+}
+
+#[wasm_bindgen]
+#[derive(Debug, Clone, Default)]
+pub struct SendParams {
+    // @name@exmaple.com -> https://example.com/user/name
+    recipients: HashMap<String, String>,
+    content: String
+}
+
+#[wasm_bindgen]
+impl SendParams {
+    pub fn new() -> SendParams {
+        SendParams::default()
+    }
+
+    pub async fn add_address(&mut self, address: String) -> Self {
+        self.recipients.insert(address.clone(), get_webfinger(address).await.unwrap_or_default());
+        self.clone()
+    }
+
+    pub fn set_content(&mut self, content: String) -> Self {
+        self.content = content;
+        self.clone()
+    }
+
+    pub fn get_recipients(&self) -> String {
+        serde_json::to_string(&self.recipients).unwrap()
+    }
+
+    pub fn get_content(&self) -> String {
+        self.content.clone()
+    }
+}
+
+#[wasm_bindgen]
+pub async fn send_note(params: SendParams) -> bool {
+    // I'm probably doing this badly; I'm trying to appease the compiler
+    // warning me about holding the lock across the await further down
+    let state = &*ENIGMATICK_STATE;
+    let state = { if let Ok(x) = state.try_lock() { Option::from(x.clone()) } else { Option::None }};
+    
+    if let Some(state) = state {
+        if state.is_authenticated() {
+            if let Some(profile) = &state.profile {
+
+                let outbox = format!("https://enigmatick.jdt.dev/user/{}/outbox",
+                                     profile.username.clone());
+                
+                let id = format!("https://enigmatick.jdt.dev/user/{}", profile.username.clone());
+                let mut note = ApNote::from(params);
+                note.attributed_to = id;
+
+                let body = serde_json::to_string(&note).unwrap();
+                
+                let signature = sign(SignParams {
+                    url: outbox.clone(),
+                    body: Option::from(body.clone()),
+                    method: Method::Post
+                });
+
+                log(&format!("siggy: {:#?}", signature));
+
+                Request::post(&outbox)
+                    .header("Enigmatick-Date", &signature.date)
+                    .header("Digest", &signature.digest.unwrap())
+                    .header("Signature", &signature.signature)
+                    .header("Content-Type", "application/activity+json")
+                    .body(body)
+                    .send().await.is_ok()
+            } else {
+                false
+            }
+        } else {
+            false
+        }
+    } else {
+        false
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct WebfingerLink {
+    rel: String,
+    #[serde(rename = "type")]
+    kind: Option<String>,
+    href: Option<String>,
+    template: Option<String>
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct WebfingerResponse {
+    pub subject: String,
+    pub aliases: Vec<String>,
+    pub links: Vec<WebfingerLink>,
+}
+
+#[wasm_bindgen]
+pub async fn get_webfinger(address: String) -> Option<String> {
+    let address_re = regex::Regex::new(r#"@(.+?)@(.+)"#).unwrap();
+    
+    if let Some(address_match) = address_re.captures(&address) {
+        //let username = &address_match[1].to_string();
+        let domain = &address_match[2].to_string();
+        
+        let url = format!("https://{}/.well-known/webfinger?resource=acct:{}",
+                          domain,
+                          address.trim_start_matches('@'));
+
+        if let Ok(x) = Request::get(&url).send().await {
+            if let Ok(t) = x.json::<WebfingerResponse>().await {
+
+                let mut ret = Option::<String>::None;
+                
+                for link in t.links {
+                    if link.rel == "self" {
+                        ret = link.href;
+                    }
+                }
+
+                ret
             } else {
                 Option::None
             }
