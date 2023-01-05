@@ -31,7 +31,7 @@ extern "C" {
 }
 
 #[wasm_bindgen(getter_with_clone)]
-#[derive(Default, Clone)]
+#[derive(Default, Clone, Serialize, Deserialize, Debug)]
 pub struct EnigmatickState {
     authenticated: bool,
     
@@ -48,6 +48,9 @@ pub struct EnigmatickState {
 
     // this is the decrypted, PEM encoded client key from the keystore
     client_private_key_pem: Option<String>,
+
+    // this is the decrypted, pickled olm account from the keystore
+    olm_pickled_account: Option<String>,
 }
 
 #[wasm_bindgen]
@@ -74,14 +77,15 @@ impl EnigmatickState {
         self.profile.clone()
     }
 
-    pub fn set_keystore(&mut self, keystore: KeyStore) -> Self {
+    fn set_keystore(&mut self, keystore: KeyStore) -> Self {
         self.keystore = Option::from(keystore);
         self.clone()
     }
 
-    pub fn get_keystore(&self) -> Option<KeyStore> {
-        self.keystore.clone()
-    }
+    // pub fn get_keystore(&self) -> Option<KeyStore> {
+    //     self.keystore.clone()
+    // }
+
 
     pub fn set_client_private_key_pem(&mut self, pem: String) -> Self {
         self.client_private_key_pem = Option::from(pem);
@@ -92,14 +96,42 @@ impl EnigmatickState {
         self.client_private_key_pem.clone()
     }
 
+    pub fn set_olm_pickled_account(&mut self, olm_pickled_account: String) -> Self {
+        self.olm_pickled_account = Option::from(olm_pickled_account);
+        self.clone()
+    }
+
+    pub fn get_olm_pickled_account(&self) -> Option<String> {
+        self.olm_pickled_account.clone()
+    }
+
     pub fn is_authenticated(&self) -> bool {
         self.authenticated
+    }
+
+    pub fn export(&self) -> String {
+        serde_json::to_string(self).unwrap()
     }
 }
 
 lazy_static! {
     pub static ref ENIGMATICK_STATE: Arc<Mutex<EnigmatickState>> = {
         Arc::new(Mutex::new(EnigmatickState::new()))
+    };
+}
+
+#[wasm_bindgen]
+pub fn import_state(data: String) {
+    let imported_state: EnigmatickState = serde_json::from_str(&data).unwrap();
+
+    let state = &*ENIGMATICK_STATE.clone();
+                
+    if let Ok(mut x) = state.try_lock() {
+        x.set_derived_key(imported_state.derived_key.unwrap());
+        x.authenticated = imported_state.authenticated;
+        x.set_client_private_key_pem(imported_state.client_private_key_pem.unwrap());
+        x.set_profile(imported_state.profile.unwrap());
+        x.set_keystore(imported_state.keystore.unwrap());
     };
 }
 
@@ -120,14 +152,28 @@ fn get_key_pair() -> KeyPair {
     }
 }
 
-#[wasm_bindgen(getter_with_clone)]
-#[derive(Serialize, Deserialize, Debug, Clone)]
+
+#[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct KeyStore {
     // salt is base64 encoded and is used for the KDF that generates the
     // key for the AEAD encryption used in this struct
     pub salt: String,
+    
     // client_private_key is pem encoded, encrypted, and then base64 encoded
     pub client_private_key: String,
+
+    // olm_identity_public_key is a Curve25519PublicKey that has been base64
+    // encoded without padding by the vodozemac library (which will also import
+    // it using native functions)
+    pub olm_identity_public_key: String,
+
+    // olm_one_time_keys is a JSON object in the form of {"u8": [u8,u8,u8..], "u8": [...]}
+    // these are public keys to be distributed to parties who want to initiate Olm sessions
+    pub olm_one_time_keys: HashMap<String, Vec<u8>>,
+
+    // olm_pickled_account is converted from an Account to an AccountPickle and then serialized
+    // via serde_json by the Olm component; it is then encrypted and base64 encoded here
+    pub olm_pickled_account: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -142,16 +188,17 @@ pub struct NewUser {
 #[wasm_bindgen(getter_with_clone)]
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct Profile {
-    pub client_public_key: String,
     pub created_at: String,
+    pub updated_at: String,
+    pub uuid: String,
+    pub username: String,
     pub display_name: String,
-    pub keystore: String,
-    pub public_key: String,
     #[wasm_bindgen(skip)]
     pub summary: Option<String>,
-    pub updated_at: String,
-    pub username: String,
-    pub uuid: String
+    pub public_key: String,
+    #[wasm_bindgen(skip)]
+    pub keystore: KeyStore,
+    pub client_public_key: String,
 }
 
 #[wasm_bindgen]
@@ -193,17 +240,31 @@ pub async fn authenticate(username: String,
                     let user: Profile = user.clone().unwrap();
                     x.set_profile(user.clone());
 
-                    let keystore: KeyStore = serde_json::from_str(&user.keystore).unwrap();
-                    x.set_keystore(keystore.clone());
+                    x.set_keystore(user.keystore.clone());
 
-                    let salt = kdf::Salt::from_slice(&decode(keystore.salt).unwrap()).unwrap();
+                    let salt = kdf::Salt::from_slice(&decode(user.keystore.salt).unwrap()).unwrap();
 
                     if let Ok(derived_key) = kdf::derive_key(&passphrase, &salt, 3, 1<<4, 32) {
                         let encoded_derived_key = encode(derived_key.unprotected_as_bytes());
                         x.set_derived_key(encoded_derived_key);
 
-                        if let Ok(decrypted_client_key_pem) = aead::open(&derived_key, &decode(keystore.client_private_key).unwrap()) {
-                            x.set_client_private_key_pem(String::from_utf8(decrypted_client_key_pem).unwrap());
+                        if let Ok(decrypted_client_key_pem) =
+                            aead::open(&derived_key,
+                                       &decode(user.keystore.client_private_key)
+                                       .unwrap())
+                        {
+                            x.set_client_private_key_pem(
+                                String::from_utf8(decrypted_client_key_pem).unwrap()
+                            );
+                        }
+
+                        if let Ok(decrypted_olm_pickled_account) =
+                            aead::open(&derived_key,
+                                       &decode(user.keystore.olm_pickled_account)
+                                       .unwrap())
+                        {
+                            x.set_olm_pickled_account(String::from_utf8(decrypted_olm_pickled_account)
+                                                      .unwrap());
                         }
                     }
                 };
@@ -224,7 +285,12 @@ pub async fn authenticate(username: String,
 pub async fn create_user(username: String,
                          display_name: String,
                          password: String,
-                         passphrase: String) -> Option<Profile> {
+                         passphrase: String,
+                         olm_identity_public_key: String,
+                         olm_one_time_keys: String,
+                         olm_pickled_account: String
+) -> Option<Profile> {
+    
     let key = get_key_pair();
 
     if let (Ok(client_public_key),
@@ -246,12 +312,18 @@ pub async fn create_user(username: String,
             let salt = encode(&salt);
             let encoded_derived_key = encode(derived_key.unprotected_as_bytes());
 
-            if let Ok(ciphertext) = aead::seal(&derived_key, client_private_key.as_bytes()) {
-                let client_private_key = encode(ciphertext);
+            if let (Ok(cpk_ciphertext), Ok(olm_ciphertext)) = (aead::seal(&derived_key, client_private_key.as_bytes()),
+                                                               aead::seal(&derived_key, olm_pickled_account.as_bytes())) {
+                let client_private_key = encode(cpk_ciphertext);
+                let olm_pickled_account = encode(olm_ciphertext);
+                let olm_one_time_keys: HashMap<String, Vec<u8>> = serde_json::from_str(&olm_one_time_keys).unwrap();
                 
                 if let Ok(keystore) = serde_json::to_string(&KeyStore {
                     client_private_key,
-                    salt
+                    salt,
+                    olm_identity_public_key,
+                    olm_one_time_keys,
+                    olm_pickled_account
                 }) {
                     
                     let req = NewUser {
@@ -271,9 +343,10 @@ pub async fn create_user(username: String,
                                 let user: Profile = user.clone().unwrap();
                                 x.set_profile(user.clone());
                                 x.set_derived_key(encoded_derived_key);
-                                x.set_keystore(serde_json::from_str(&user.keystore).unwrap());
+                                x.set_keystore(user.keystore);
                                 x.set_client_private_key_pem(encoded_client_private_key);
                             };
+                            //let user = y.text().await.ok();
 
                             user
                         } else {
@@ -327,8 +400,6 @@ pub fn sign(params: SignParams) -> SignResponse {
     // host: ser.endipito.us
     // date: Tue, 20 Dec 2022 22:02:48 GMT
     // digest: sha-256=uus37v4gf3z6ze+jtuyk+8xsT01FhYOi/rOoDfFV1u4=
-
-    log("in sign");
     
     let digest = {
         if let Some(body) = params.body {
@@ -341,48 +412,25 @@ pub fn sign(params: SignParams) -> SignResponse {
         }
     };
 
-    log("after digest");
-
     let url = Url::parse(&params.url).unwrap();
     let host = url.host().unwrap().to_string();
     let request_target = format!("{} {}",
                                  params.method.to_string().to_lowercase(),
                                  url.path());
 
-    log("after request_target");
-
-    let window = web_sys::window().expect("should have a window in this context");
-    // let performance = window
-    //     .performance()
-    //     .expect("performance should be available");
-
     fn perf_to_system(amt: f64) -> std::time::SystemTime {
         let secs = (amt as u64) / 1_000;
         let nanos = ((amt as u32) % 1_000) * 1_000_000;
         std::time::UNIX_EPOCH + std::time::Duration::new(secs, nanos)
     }
-
-    let d = date_now();
-    log(&format!("now: {:#?}", d));
     
-    let now = perf_to_system(d);
-
-    log("after now");
-    
-    let date = httpdate::fmt_http_date(now);
-
-    log(&format!("date: {:#?}", date));
-    log("after date");
+    let date = httpdate::fmt_http_date(perf_to_system(date_now()));
 
     let state = &*ENIGMATICK_STATE;
 
-    log("after state");
-                            
     if let (Ok(x), Some(digest)) = (state.try_lock(), digest) {
         if let (Some(y), Some(profile)) = (&x.client_private_key_pem, &x.profile) {
 
-            log("in big if");
-            
             let private_key = RsaPrivateKey::from_pkcs8_pem(y).unwrap();
             let signing_key = SigningKey::<Sha256>::new_with_prefix(private_key);
             
@@ -394,8 +442,6 @@ pub fn sign(params: SignParams) -> SignResponse {
                 digest
             );
 
-            log("after structured data");
-            
             let mut rng = rand::thread_rng();
             let signature = signing_key.sign_with_rng(&mut rng, structured_data.as_bytes());
 
@@ -490,10 +536,15 @@ pub async fn send_note(params: SendParams) -> bool {
     // warning me about holding the lock across the await further down
     let state = &*ENIGMATICK_STATE;
     let state = { if let Ok(x) = state.try_lock() { Option::from(x.clone()) } else { Option::None }};
+
+    log("in send_note");
     
     if let Some(state) = state {
+        log("in state");
         if state.is_authenticated() {
+            log("in authenticated");
             if let Some(profile) = &state.profile {
+                log("in profile");
 
                 let outbox = format!("https://enigmatick.jdt.dev/user/{}/outbox",
                                      profile.username.clone());
@@ -503,6 +554,117 @@ pub async fn send_note(params: SendParams) -> bool {
                 note.attributed_to = id;
 
                 let body = serde_json::to_string(&note).unwrap();
+                
+                let signature = sign(SignParams {
+                    url: outbox.clone(),
+                    body: Option::from(body.clone()),
+                    method: Method::Post
+                });
+
+                log(&format!("siggy: {:#?}", signature));
+
+                Request::post(&outbox)
+                    .header("Enigmatick-Date", &signature.date)
+                    .header("Digest", &signature.digest.unwrap())
+                    .header("Signature", &signature.signature)
+                    .header("Content-Type", "application/activity+json")
+                    .body(body)
+                    .send().await.is_ok()
+            } else {
+                false
+            }
+        } else {
+            false
+        }
+    } else {
+        false
+    }
+}
+
+
+#[derive(Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ApInstrument {
+    #[serde(rename = "type")]
+    kind: String,
+    content: String,
+}
+
+#[derive(Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ApSession {
+    #[serde(rename = "@context")]
+    context: String,
+    #[serde(rename = "type")]
+    kind: String,
+    to: String,
+    attributed_to: String,
+    instrument: ApInstrument,
+}
+
+impl From<KexInitParams> for ApSession {
+    fn from(params: KexInitParams) -> Self {
+        ApSession {
+            context: "https://www.w3.org/ns/activitystreams".to_string(),
+            kind: "EncryptedSession".to_string(),
+            to: params.recipient,
+            instrument: ApInstrument {
+                kind: "IdentityKey".to_string(),
+                content: params.identity_key
+            },
+            ..Default::default()
+        }
+    }
+}
+
+#[wasm_bindgen(getter_with_clone)]
+#[derive(Debug, Clone, Default)]
+pub struct KexInitParams {
+    recipient: String,
+    identity_key: String
+}
+
+#[wasm_bindgen]
+impl KexInitParams {
+    pub fn new() -> KexInitParams {
+        KexInitParams::default()
+    }
+
+    pub async fn set_recipient(&mut self, address: String) -> Self {
+        self.recipient = get_webfinger(address).await.unwrap_or_default();
+        self.clone()
+    }
+
+    pub fn set_identity_key(&mut self, key: String) -> Self {
+        self.identity_key = key;
+        self.clone()
+    }
+}
+
+#[wasm_bindgen]
+pub async fn send_kex_init(params: KexInitParams) -> bool {
+    // I'm probably doing this badly; I'm trying to appease the compiler
+    // warning me about holding the lock across the await further down
+    let state = &*ENIGMATICK_STATE;
+    let state = { if let Ok(x) = state.try_lock() { Option::from(x.clone()) } else { Option::None }};
+
+    log("in send_kex_init");
+    
+    if let Some(state) = state {
+        log("in state");
+        if state.is_authenticated() {
+            log("in authenticated");
+            if let Some(profile) = &state.profile {
+                log("in profile");
+
+                let outbox = format!("https://enigmatick.jdt.dev/user/{}/outbox",
+                                     profile.username.clone());
+                
+                let id = format!("https://enigmatick.jdt.dev/user/{}", profile.username.clone());
+                let mut encrypted_session = ApSession::from(params);
+                encrypted_session.attributed_to = id;
+
+                let body = serde_json::to_string(&encrypted_session).unwrap();
                 
                 let signature = sign(SignParams {
                     url: outbox.clone(),
