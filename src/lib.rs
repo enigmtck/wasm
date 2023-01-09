@@ -15,6 +15,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::fmt::{self, Debug};
 use url::Url;
+use serde_json::Value;
 
 #[wasm_bindgen]
 extern "C" {
@@ -428,30 +429,56 @@ pub fn sign(params: SignParams) -> SignResponse {
 
     let state = &*ENIGMATICK_STATE;
 
-    if let (Ok(x), Some(digest)) = (state.try_lock(), digest) {
+    if let Ok(x) = state.try_lock() {
         if let (Some(y), Some(profile)) = (&x.client_private_key_pem, &x.profile) {
 
             let private_key = RsaPrivateKey::from_pkcs8_pem(y).unwrap();
             let signing_key = SigningKey::<Sha256>::new_with_prefix(private_key);
-            
-            let structured_data = format!(
-                "(request-target): {}\nhost: {}\ndate: {}\ndigest: {}",
-                request_target,
-                host,
-                date,
-                digest
-            );
 
-            let mut rng = rand::thread_rng();
-            let signature = signing_key.sign_with_rng(&mut rng, structured_data.as_bytes());
+            let structured_data = {
+                if let Some(digest) = digest.clone() {
+                    Option::from(format!(
+                        "(request-target): {}\nhost: {}\ndate: {}\ndigest: {}",
+                        request_target,
+                        host,
+                        date,
+                        digest
+                    ))
+                } else {
+                    Option::from(format!(
+                        "(request-target): {}\nhost: {}\ndate: {}",
+                        request_target,
+                        host,
+                        date
+                    ))
+                }
+            };
 
-            SignResponse {
-                signature: format!(
-                    "keyId=\"https://enigmatick.jdt.dev/user/{}#client-key\",headers=\"(request-target) host date digest\",signature=\"{}\"",
-                    profile.username,
-                    base64::encode(signature.as_bytes())),
-                date,
-                digest: Option::from(digest)
+            if let Some(structured_data) = structured_data {
+                let mut rng = rand::thread_rng();
+                let signature = signing_key.sign_with_rng(&mut rng, structured_data.as_bytes());
+
+                if let Some(digest) = digest {
+                    SignResponse {
+                        signature: format!(
+                            "keyId=\"https://enigmatick.jdt.dev/user/{}#client-key\",headers=\"(request-target) host date digest\",signature=\"{}\"",
+                            profile.username,
+                            base64::encode(signature.as_bytes())),
+                        date,
+                        digest: Option::from(digest)
+                    }
+                } else {
+                    SignResponse {
+                        signature: format!(
+                            "keyId=\"https://enigmatick.jdt.dev/user/{}#client-key\",headers=\"(request-target) host date\",signature=\"{}\"",
+                            profile.username,
+                            base64::encode(signature.as_bytes())),
+                        date,
+                        digest: Option::None
+                    }
+                }
+            } else {
+                SignResponse::default()
             }
         } else {
             SignResponse::default()
@@ -497,6 +524,35 @@ impl From<SendParams> for ApNote {
     }
 }
 
+#[derive(Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ApEncryptedMessage {
+    #[serde(rename = "@context")]
+    context: String,
+    #[serde(rename = "type")]
+    kind: String,
+    to: Vec<String>,
+    cc: Option<Vec<String>>,
+    attributed_to: String,
+    published: String,
+    in_reply_to: Option<String>,
+    encrypted_content: String,
+}
+
+impl From<SendParams> for ApEncryptedMessage {
+    fn from(params: SendParams) -> Self {
+        ApEncryptedMessage {
+            context: "https://www.w3.org/ns/activitystreams".to_string(),
+            kind: "EncryptedMessage".to_string(),
+            to: params.recipients.into_values().collect(),
+            cc: Option::None,
+            in_reply_to: Option::None,
+            encrypted_content: params.content,
+            ..Default::default()
+        }
+    }
+}
+
 #[wasm_bindgen]
 #[derive(Debug, Clone, Default)]
 pub struct SendParams {
@@ -530,6 +586,151 @@ impl SendParams {
     }
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[serde(untagged)]
+pub enum ApContext {
+    Plain(String),
+    Complex(Vec<Value>),
+    #[default]
+    Unknown,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub enum ApObjectType {
+    Article,
+    Audio,
+    Document,
+    Event,
+    Image,
+    Note,
+    Page,
+    Place,
+    Profile,
+    Relationship,
+    Tombstone,
+    Video,
+    EncryptedSession,
+    IdentityKey,
+    SessionKey,
+}
+
+impl fmt::Display for ApObjectType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        Debug::fmt(self, f)
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+pub enum ApBaseObjectType {
+    Object,
+    Link,
+    Activity,
+    IntransitiveActivity,
+    Collection,
+    OrderedCollection,
+    CollectionPage,
+    OrderedCollectionPage,
+    #[default]
+    Unknown,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ApCollection {
+    pub context: Option<ApContext>,
+    #[serde(rename = "type")]
+    pub kind: ApBaseObjectType,
+    pub id: Option<String>,
+    pub total_items: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub items: Option<Vec<ApObject>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub first: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub next: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub current: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    part_of: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[serde(untagged)]
+pub enum ApObject {
+    Plain(String),
+    Collection(ApCollection),
+    Session(ApSession),
+    Basic(ApBasicContent),
+    #[default]
+    Unknown,
+}
+
+#[wasm_bindgen]
+pub async fn get_inbox() -> Option<String> {
+    log("in get inbox");
+    let state = &*ENIGMATICK_STATE;
+    let state = { if let Ok(x) = state.try_lock() { Option::from(x.clone()) } else { Option::None }};
+    
+    if let Some(state) = state {
+        log("in state");
+        if state.is_authenticated() {
+            log("in authenticated");
+            if let Some(profile) = &state.profile {
+                log("in profile");
+
+                let inbox = format!("https://enigmatick.jdt.dev/user/{}/inbox",
+                                    profile.username.clone());
+                
+                let signature = sign(SignParams {
+                    url: inbox.clone(),
+                    body: Option::None,
+                    method: Method::Get
+                });
+
+                if let Ok(resp) = Request::get(&inbox)
+                    .header("Enigmatick-Date", &signature.date)
+                    .header("Signature", &signature.signature)
+                    .header("Content-Type", "application/activity+json")
+                    .send().await
+                {
+                    if let Ok(ApObject::Collection(object)) = resp.json().await {
+                        Option::from(serde_json::to_string(&object).unwrap())
+                    } else {
+                        Option::None
+                    }
+                } else {
+                    Option::None
+                }
+            } else {
+                Option::None
+            }
+        } else {
+            Option::None
+        }
+    } else {
+        Option::None
+    }
+}
+
+
+pub async fn send_post(url: String, body: String) -> bool {
+    let signature = sign(SignParams {
+        url: url.clone(),
+        body: Option::from(body.clone()),
+        method: Method::Post
+    });
+
+    Request::post(&url)
+        .header("Enigmatick-Date", &signature.date)
+        .header("Digest", &signature.digest.unwrap())
+        .header("Signature", &signature.signature)
+        .header("Content-Type", "application/activity+json")
+        .body(body)
+        .send().await.is_ok()
+}
+
 #[wasm_bindgen]
 pub async fn send_note(params: SendParams) -> bool {
     // I'm probably doing this badly; I'm trying to appease the compiler
@@ -553,23 +754,7 @@ pub async fn send_note(params: SendParams) -> bool {
                 let mut note = ApNote::from(params);
                 note.attributed_to = id;
 
-                let body = serde_json::to_string(&note).unwrap();
-                
-                let signature = sign(SignParams {
-                    url: outbox.clone(),
-                    body: Option::from(body.clone()),
-                    method: Method::Post
-                });
-
-                log(&format!("siggy: {:#?}", signature));
-
-                Request::post(&outbox)
-                    .header("Enigmatick-Date", &signature.date)
-                    .header("Digest", &signature.digest.unwrap())
-                    .header("Signature", &signature.signature)
-                    .header("Content-Type", "application/activity+json")
-                    .body(body)
-                    .send().await.is_ok()
+                send_post(outbox, serde_json::to_string(&note).unwrap()).await
             } else {
                 false
             }
@@ -581,25 +766,83 @@ pub async fn send_note(params: SendParams) -> bool {
     }
 }
 
+#[wasm_bindgen]
+pub async fn send_encrypted_message(params: SendParams) -> bool {
+    // I'm probably doing this badly; I'm trying to appease the compiler
+    // warning me about holding the lock across the await further down
+    let state = &*ENIGMATICK_STATE;
+    let state = { if let Ok(x) = state.try_lock() { Option::from(x.clone()) } else { Option::None }};
 
-#[derive(Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct ApInstrument {
-    #[serde(rename = "type")]
-    kind: String,
-    content: String,
+    log("in send_encrypted_message");
+    
+    if let Some(state) = state {
+        log("in state");
+        if state.is_authenticated() {
+            log("in authenticated");
+            if let Some(profile) = &state.profile {
+                log("in profile");
+
+                let outbox = format!("https://enigmatick.jdt.dev/user/{}/outbox",
+                                     profile.username.clone());
+                
+                let id = format!("https://enigmatick.jdt.dev/user/{}", profile.username.clone());
+                let mut encrypted_message = ApEncryptedMessage::from(params);
+                encrypted_message.attributed_to = id;
+
+                send_post(outbox, serde_json::to_string(&encrypted_message).unwrap()).await
+            } else {
+                false
+            }
+        } else {
+            false
+        }
+    } else {
+        false
+    }
 }
 
-#[derive(Serialize, Deserialize, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub enum ApBasicContentType {
+    IdentityKey,
+    SessionKey,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct ApBasicContent {
+    #[serde(rename = "type")]
+    pub kind: ApBasicContentType,
+    pub content: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[serde(untagged)]
+pub enum ApInstrument {
+    Single(Box<ApObject>),
+    Multiple(Vec<ApObject>),
+    #[default]
+    Unknown,
+}
+
+// #[derive(Serialize, Deserialize, Default, Debug, Clone)]
+// #[serde(rename_all = "camelCase")]
+// pub struct ApInstrument {
+//     #[serde(rename = "type")]
+//     kind: String,
+//     content: String,
+// }
+
+#[derive(Serialize, Deserialize, Default, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct ApSession {
     #[serde(rename = "@context")]
     context: String,
     #[serde(rename = "type")]
     kind: String,
+    id: Option<String>,
     to: String,
     attributed_to: String,
     instrument: ApInstrument,
+    reference: Option<String>,
 }
 
 impl From<KexInitParams> for ApSession {
@@ -608,10 +851,10 @@ impl From<KexInitParams> for ApSession {
             context: "https://www.w3.org/ns/activitystreams".to_string(),
             kind: "EncryptedSession".to_string(),
             to: params.recipient,
-            instrument: ApInstrument {
-                kind: "IdentityKey".to_string(),
+            instrument: ApInstrument::Single(Box::new(ApObject::Basic(ApBasicContent {
+                kind: ApBasicContentType::IdentityKey,
                 content: params.identity_key
-            },
+            }))),
             ..Default::default()
         }
     }
@@ -664,23 +907,7 @@ pub async fn send_kex_init(params: KexInitParams) -> bool {
                 let mut encrypted_session = ApSession::from(params);
                 encrypted_session.attributed_to = id;
 
-                let body = serde_json::to_string(&encrypted_session).unwrap();
-                
-                let signature = sign(SignParams {
-                    url: outbox.clone(),
-                    body: Option::from(body.clone()),
-                    method: Method::Post
-                });
-
-                log(&format!("siggy: {:#?}", signature));
-
-                Request::post(&outbox)
-                    .header("Enigmatick-Date", &signature.date)
-                    .header("Digest", &signature.digest.unwrap())
-                    .header("Signature", &signature.signature)
-                    .header("Content-Type", "application/activity+json")
-                    .body(body)
-                    .send().await.is_ok()
+                send_post(outbox, serde_json::to_string(&encrypted_session).unwrap()).await
             } else {
                 false
             }
