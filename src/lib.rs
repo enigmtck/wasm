@@ -1,6 +1,7 @@
 #![allow(non_upper_case_globals)]
 
 use gloo_net::http::Request;
+use orion::aead::SecretKey;
 use wasm_bindgen::prelude::*;
 use serde::{Serialize, Deserialize};
 use lazy_static::lazy_static;
@@ -52,6 +53,10 @@ pub struct EnigmatickState {
 
     // this is the decrypted, pickled olm account from the keystore
     olm_pickled_account: Option<String>,
+
+    // this is the decrypted map of user identities to pickled sessions decrypted
+    // and decoded from the keystore
+    olm_sessions: Option<HashMap<String, String>>
 }
 
 #[wasm_bindgen]
@@ -60,6 +65,23 @@ impl EnigmatickState {
         EnigmatickState::default()
     }
 
+    pub fn cache_external_identity_key(&mut self, ap_id: String, identity_key: String) -> Self {
+        if let Some(keystore) = &self.keystore {
+            let mut keystore = keystore.clone();
+            keystore.olm_external_identity_keys.insert(ap_id, identity_key);
+            self.keystore = Option::from(keystore);
+        }
+        self.clone()
+    }
+
+    pub fn get_external_identity_key(&self, ap_id: String) -> Option<String> {
+        if let Some(keystore) = &self.keystore {
+            keystore.olm_external_identity_keys.get(&ap_id).cloned()
+        } else {
+            Option::None
+        }
+    }
+    
     pub fn set_derived_key(&mut self, key: String) -> Self {
         self.derived_key = Option::from(key);
         self.clone()
@@ -83,10 +105,9 @@ impl EnigmatickState {
         self.clone()
     }
 
-    // pub fn get_keystore(&self) -> Option<KeyStore> {
-    //     self.keystore.clone()
-    // }
-
+    fn get_keystore(&self) -> Option<KeyStore> {
+        self.keystore.clone()
+    }
 
     pub fn set_client_private_key_pem(&mut self, pem: String) -> Self {
         self.client_private_key_pem = Option::from(pem);
@@ -104,6 +125,33 @@ impl EnigmatickState {
 
     pub fn get_olm_pickled_account(&self) -> Option<String> {
         self.olm_pickled_account.clone()
+    }
+
+    pub fn set_olm_sessions(&mut self, olm_sessions: String) -> Self {
+        self.olm_sessions = Option::<HashMap<String, String>>::from(
+            serde_json::from_str::<HashMap<String, String>>(&olm_sessions).unwrap());
+        self.clone()
+    }
+
+    pub fn get_olm_sessions(&self) -> String {
+        serde_json::to_string(&self.olm_sessions).unwrap()
+    }
+
+    pub fn set_olm_session(&mut self, ap_id: String, session: String) -> Self {
+        if let Some(olm_sessions) = self.olm_sessions.clone() {
+            let mut olm_sessions = olm_sessions;
+            olm_sessions.insert(ap_id, session);
+            self.olm_sessions = Option::from(olm_sessions);
+        } 
+        self.clone()
+    }
+    
+    pub fn get_olm_session(&self, ap_id: String) -> Option<String> {
+        if let Some(olm_sessions) = self.olm_sessions.clone() {
+            olm_sessions.get(&ap_id).cloned()
+        } else {
+            Option::None
+        }
     }
 
     pub fn is_authenticated(&self) -> bool {
@@ -175,6 +223,14 @@ pub struct KeyStore {
     // olm_pickled_account is converted from an Account to an AccountPickle and then serialized
     // via serde_json by the Olm component; it is then encrypted and base64 encoded here
     pub olm_pickled_account: String,
+
+    // olm_external_identity_keys is a cache of keys to use for decrypting messages with
+    // other parties; the format is https://server/user/username -> base64-encoded-identitykey
+    pub olm_external_identity_keys: HashMap<String, String>,
+
+    // olm_sessions is a HashMap<String, String> that maps user identities to pickled Olm
+    // sessions; the HashMap is stored via serde_json::to_string -> AEAD encrypt -> base64
+    pub olm_sessions: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -230,22 +286,28 @@ pub async fn authenticate(username: String,
     };
 
     if let Ok(passphrase) = kdf::Password::from_slice(passphrase.as_bytes()) {
+        log("in passphrase");
         if let Ok(x) = Request::post("http://localhost:8010/api/user/authenticate").json(&req) {   
             if let Ok(y) = x.send().await {
+                log("in request");
                 let state = &*ENIGMATICK_STATE.clone();
+                //log(&format!("y\n{:#?}", y.text().await));
                 let user = y.json().await.ok();
                 
                 if let Ok(mut x) = state.try_lock() {
+                    log("in lock");
                     x.authenticated = true;
-                    
+
+                    log(&format!("user\n{:#?}", user));
                     let user: Profile = user.clone().unwrap();
                     x.set_profile(user.clone());
-
+                    log("after profile");
                     x.set_keystore(user.keystore.clone());
-
+                    log("after keystore");
                     let salt = kdf::Salt::from_slice(&decode(user.keystore.salt).unwrap()).unwrap();
 
                     if let Ok(derived_key) = kdf::derive_key(&passphrase, &salt, 3, 1<<4, 32) {
+                        log("in derive");
                         let encoded_derived_key = encode(derived_key.unprotected_as_bytes());
                         x.set_derived_key(encoded_derived_key);
 
@@ -254,6 +316,7 @@ pub async fn authenticate(username: String,
                                        &decode(user.keystore.client_private_key)
                                        .unwrap())
                         {
+                            log("in decrypted pem");
                             x.set_client_private_key_pem(
                                 String::from_utf8(decrypted_client_key_pem).unwrap()
                             );
@@ -264,8 +327,24 @@ pub async fn authenticate(username: String,
                                        &decode(user.keystore.olm_pickled_account)
                                        .unwrap())
                         {
+                            log("in decrypted pickle");
                             x.set_olm_pickled_account(String::from_utf8(decrypted_olm_pickled_account)
                                                       .unwrap());
+                        }
+
+                        if let Ok(decrypted_olm_sessions) =
+                            aead::open(&derived_key,
+                                       &decode(user.keystore.olm_sessions)
+                                       .unwrap())
+                        {
+                            log("in decrypted olm_sessions");
+                            match String::from_utf8(decrypted_olm_sessions) {
+                                Ok(y) => {
+                                    log(&format!("olm_sessions: {:#?}", y));
+                                    x.set_olm_sessions(y);
+                                },
+                                Err(e) => log(&format!("olm_sessions error: {:#?}", e))
+                            }           
                         }
                     }
                 };
@@ -313,43 +392,58 @@ pub async fn create_user(username: String,
             let salt = encode(&salt);
             let encoded_derived_key = encode(derived_key.unprotected_as_bytes());
 
-            if let (Ok(cpk_ciphertext), Ok(olm_ciphertext)) = (aead::seal(&derived_key, client_private_key.as_bytes()),
-                                                               aead::seal(&derived_key, olm_pickled_account.as_bytes())) {
-                let client_private_key = encode(cpk_ciphertext);
-                let olm_pickled_account = encode(olm_ciphertext);
-                let olm_one_time_keys: HashMap<String, Vec<u8>> = serde_json::from_str(&olm_one_time_keys).unwrap();
-                
-                if let Ok(keystore) = serde_json::to_string(&KeyStore {
-                    client_private_key,
-                    salt,
-                    olm_identity_public_key,
-                    olm_one_time_keys,
-                    olm_pickled_account
-                }) {
+            let olm_sessions = serde_json::to_string(&HashMap::<String, String>::new()).unwrap();
+            
+            if let (Ok(cpk_ciphertext), Ok(olm_ciphertext), Ok(sessions_ciphertext)) =
+                (aead::seal(&derived_key, client_private_key.as_bytes()),
+                 aead::seal(&derived_key, olm_pickled_account.as_bytes()),
+                 aead::seal(&derived_key, olm_sessions.as_bytes())) {
                     
-                    let req = NewUser {
-                        username,
-                        password,
-                        display_name,
-                        client_public_key,
-                        keystore
-                    };
+                    let client_private_key = encode(cpk_ciphertext);
+                    let olm_pickled_account = encode(olm_ciphertext);
+                    let olm_sessions = encode(sessions_ciphertext);
+                    let olm_one_time_keys: HashMap<String, Vec<u8>> =
+                        serde_json::from_str(&olm_one_time_keys).unwrap();
+                    let olm_external_identity_keys: HashMap<String, String> = HashMap::new();
                     
-                    if let Ok(x) = Request::post("http://localhost:8010/api/user/create").json(&req) {   
-                        if let Ok(y) = x.send().await {
-                            let state = &*ENIGMATICK_STATE.clone();
-                            let user = y.json().await.ok();
-                            
-                            if let Ok(mut x) = state.try_lock() {
-                                let user: Profile = user.clone().unwrap();
-                                x.set_profile(user.clone());
-                                x.set_derived_key(encoded_derived_key);
-                                x.set_keystore(user.keystore);
-                                x.set_client_private_key_pem(encoded_client_private_key);
-                            };
-                            //let user = y.text().await.ok();
+                    if let Ok(keystore) = serde_json::to_string(&KeyStore {
+                        client_private_key,
+                        salt,
+                        olm_identity_public_key,
+                        olm_one_time_keys,
+                        olm_pickled_account,
+                        olm_external_identity_keys,
+                        olm_sessions,
+                    }) {
 
-                            user
+                        log(&format!("serialized keystore\n{:#?}", keystore));
+                        let req = NewUser {
+                            username,
+                            password,
+                            display_name,
+                            client_public_key,
+                            keystore
+                        };
+                        
+                        if let Ok(x) =
+                            Request::post("http://localhost:8010/api/user/create").json(&req) {   
+                            if let Ok(y) = x.send().await {
+                                let state = &*ENIGMATICK_STATE.clone();
+                                let user = y.json().await.ok();
+                                
+                                if let Ok(mut x) = state.try_lock() {
+                                    let user: Profile = user.clone().unwrap();
+                                    x.set_profile(user.clone());
+                                    x.set_derived_key(encoded_derived_key);
+                                    x.set_keystore(user.keystore);
+                                    x.set_client_private_key_pem(encoded_client_private_key);
+                                };
+                                //let user = y.text().await.ok();
+
+                                user
+                            } else {
+                                Option::None
+                            }
                         } else {
                             Option::None
                         }
@@ -359,9 +453,6 @@ pub async fn create_user(username: String,
                 } else {
                     Option::None
                 }
-            } else {
-                Option::None
-            }
         } else {
             Option::None
         }
@@ -488,7 +579,14 @@ pub fn sign(params: SignParams) -> SignResponse {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(untagged)]
+pub enum ApFlexible {
+    Single(Value),
+    Multiple(Vec<Value>),
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ApTag {
     #[serde(rename = "type")]
     kind: String,
@@ -496,58 +594,38 @@ pub struct ApTag {
     href: String,
 }
 
-#[derive(Serialize, Deserialize, Default)]
+#[derive(Serialize, Deserialize, Default, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct ApNote {
+    #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "@context")]
-    context: String,
+    context: Option<String>,
     #[serde(rename = "type")]
     kind: String,
+    published: Option<String>,
+    url: Option<ApFlexible>,
     to: Vec<String>,
+    cc: Option<Vec<String>>,
     tag: Vec<ApTag>,
     attributed_to: String,
     content: String,
+    in_reply_to: Option<String>,
+    replies: Option<ApFlexible>,
 }
 
 impl From<SendParams> for ApNote {
     fn from(params: SendParams) -> Self {
         let tag = params.recipients.iter().map(|(x, y)| ApTag { kind: "Mention".to_string(), name: x.to_string(), href: y.to_string()}).collect::<Vec<ApTag>>();
+
+        let mut recipients: Vec<String> = params.recipients.into_values().collect();
+        recipients.extend(params.recipient_ids);
         
         ApNote {
-            context: "https://www.w3.org/ns/activitystreams".to_string(),
-            kind: "Note".to_string(),
-            to: params.recipients.into_values().collect(),
+            context: Option::from("https://www.w3.org/ns/activitystreams".to_string()),
+            kind: params.kind,
+            to: recipients,
             tag,
             content: params.content,
-            ..Default::default()
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct ApEncryptedMessage {
-    #[serde(rename = "@context")]
-    context: String,
-    #[serde(rename = "type")]
-    kind: String,
-    to: Vec<String>,
-    cc: Option<Vec<String>>,
-    attributed_to: String,
-    published: String,
-    in_reply_to: Option<String>,
-    encrypted_content: String,
-}
-
-impl From<SendParams> for ApEncryptedMessage {
-    fn from(params: SendParams) -> Self {
-        ApEncryptedMessage {
-            context: "https://www.w3.org/ns/activitystreams".to_string(),
-            kind: "EncryptedMessage".to_string(),
-            to: params.recipients.into_values().collect(),
-            cc: Option::None,
-            in_reply_to: Option::None,
-            encrypted_content: params.content,
             ..Default::default()
         }
     }
@@ -556,9 +634,14 @@ impl From<SendParams> for ApEncryptedMessage {
 #[wasm_bindgen]
 #[derive(Debug, Clone, Default)]
 pub struct SendParams {
-    // @name@exmaple.com -> https://example.com/user/name
+    // @name@example.com -> https://example.com/user/name
     recipients: HashMap<String, String>,
-    content: String
+
+    // https://server/user/username - used for EncryptedNotes where tags
+    // are undesirable
+    recipient_ids: Vec<String>,
+    content: String,
+    kind: String,
 }
 
 #[wasm_bindgen]
@@ -567,6 +650,16 @@ impl SendParams {
         SendParams::default()
     }
 
+    pub fn set_kind(&mut self, kind: String) -> Self {
+        self.kind = kind;
+        self.clone()
+    }
+    
+    pub fn add_recipient_id(&mut self, recipient_id: String) -> Self {
+        self.recipient_ids.push(recipient_id);
+        self.clone()
+    }
+    
     pub async fn add_address(&mut self, address: String) -> Self {
         self.recipients.insert(address.clone(), get_webfinger(address).await.unwrap_or_default());
         self.clone()
@@ -637,6 +730,7 @@ pub enum ApBaseObjectType {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct ApCollection {
+    #[serde(rename = "@context")]
     pub context: Option<ApContext>,
     #[serde(rename = "type")]
     pub kind: ApBaseObjectType,
@@ -662,6 +756,7 @@ pub enum ApObject {
     Plain(String),
     Collection(ApCollection),
     Session(ApSession),
+    Note(ApNote),
     Basic(ApBasicContent),
     #[default]
     Unknown,
@@ -696,6 +791,51 @@ pub async fn get_inbox() -> Option<String> {
                     .send().await
                 {
                     if let Ok(ApObject::Collection(object)) = resp.json().await {
+                        if let Some(items) = object.items.clone() {
+                            for o in items {
+                                if let ApObject::Session(session) = o {
+                                    match session.instrument {
+                                        ApInstrument::Multiple(x) => {
+                                            for i in x {
+                                                if let ApObject::Basic(y) = i {
+                                                    if y.kind == ApBasicContentType::IdentityKey {
+                                                        if let Ok(mut x) =
+                                                            (*ENIGMATICK_STATE).try_lock()
+                                                        {
+                                                            log(&format!("caching: {:#?}",
+                                                                        session.attributed_to
+                                                                        .clone()));
+                                                            x.cache_external_identity_key(
+                                                                session.attributed_to.clone(),
+                                                                y.content);
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        },
+                                        ApInstrument::Single(x) => {
+                                            if let ApObject::Basic(y) = *x {
+                                                if y.kind == ApBasicContentType::IdentityKey {
+                                                    if let Ok(mut x) =
+                                                        (*ENIGMATICK_STATE).try_lock()
+                                                    {
+                                                        log(&format!("caching: {:#?}",
+                                                                     session.attributed_to
+                                                                     .clone()));
+                                                        x.cache_external_identity_key(
+                                                            session.attributed_to.clone(),
+                                                            y.content);
+                                                    }
+                                                }
+                                            }
+                                        },
+                                        _ => {
+                                        }
+                                    }
+                                }
+                            }
+                            send_updated_identity_cache().await;
+                        }
                         Option::from(serde_json::to_string(&object).unwrap())
                     } else {
                         Option::None
@@ -715,7 +855,7 @@ pub async fn get_inbox() -> Option<String> {
 }
 
 
-pub async fn send_post(url: String, body: String) -> bool {
+pub async fn send_post(url: String, body: String, content_type: String) -> bool {
     let signature = sign(SignParams {
         url: url.clone(),
         body: Option::from(body.clone()),
@@ -726,9 +866,99 @@ pub async fn send_post(url: String, body: String) -> bool {
         .header("Enigmatick-Date", &signature.date)
         .header("Digest", &signature.digest.unwrap())
         .header("Signature", &signature.signature)
-        .header("Content-Type", "application/activity+json")
+        .header("Content-Type", &content_type)
         .body(body)
         .send().await.is_ok()
+}
+
+pub async fn send_updated_identity_cache() -> bool {
+    let state = &*ENIGMATICK_STATE;
+    let keystore: Option<KeyStore> = { if let Ok(x) = state.try_lock() {
+        x.clone().get_keystore()
+    } else {
+        Option::None
+    }};
+
+    let profile: Option<Profile> = { if let Ok(x) = state.try_lock() {
+        x.clone().get_profile()
+    } else {
+        Option::None
+    }};
+
+    if let (Some(keystore), Some(profile)) = (keystore, profile) {
+        let url = format!("https://enigmatick.jdt.dev/api/user/{}/update_identity_cache",
+                          profile.username);
+
+        let data = serde_json::to_string(&keystore).unwrap();
+        send_post(url, data, "application/json".to_string()).await
+    } else {
+        false
+    }
+}
+
+pub async fn send_updated_olm_sessions() -> bool {
+    let state = &*ENIGMATICK_STATE;
+    let keystore: Option<KeyStore> = { if let Ok(x) = state.try_lock() {
+        x.clone().get_keystore()
+    } else {
+        Option::None
+    }};
+
+    let profile: Option<Profile> = { if let Ok(x) = state.try_lock() {
+        x.clone().get_profile()
+    } else {
+        Option::None
+    }};
+
+    if let (Some(keystore), Some(profile)) = (keystore, profile) {
+        let url = format!("https://enigmatick.jdt.dev/api/user/{}/update_olm_sessions",
+                          profile.username);
+
+        let data = serde_json::to_string(&keystore).unwrap();
+        send_post(url, data, "application/json".to_string()).await
+    } else {
+        false
+    }
+}
+
+#[wasm_bindgen]
+pub fn update_keystore_olm_sessions(olm_sessions: String) -> bool {
+    if let Ok(mut x) = (*ENIGMATICK_STATE).try_lock() {
+        if let Some(derived_key) = &x.derived_key {
+            let derived_key = SecretKey::from_slice(&decode(derived_key).unwrap()).unwrap();
+            
+            if let Ok(ciphertext) = aead::seal(&derived_key, olm_sessions.as_bytes()) {
+                let mut keystore = x.keystore.clone().unwrap();
+                keystore.olm_sessions = encode(ciphertext);
+                x.keystore = Option::from(keystore);
+                true
+            } else {
+                false
+            }
+        } else {
+            false
+        }
+    } else {
+        false
+    }
+}
+
+#[wasm_bindgen]
+pub fn get_olm_session(ap_id: String) -> Option<String> {
+    if let Ok(x) = (*ENIGMATICK_STATE).try_lock() {
+        x.get_olm_session(ap_id)
+    } else {
+        Option::None
+    }
+}
+
+#[wasm_bindgen]
+pub fn get_external_identity_key(ap_id: String) -> Option<String> {
+    if let Ok(x) = (*ENIGMATICK_STATE).try_lock() {
+        x.get_external_identity_key(ap_id)
+    } else {
+        Option::None
+    }
 }
 
 #[wasm_bindgen]
@@ -754,7 +984,9 @@ pub async fn send_note(params: SendParams) -> bool {
                 let mut note = ApNote::from(params);
                 note.attributed_to = id;
 
-                send_post(outbox, serde_json::to_string(&note).unwrap()).await
+                send_post(outbox,
+                          serde_json::to_string(&note).unwrap(),
+                          "application/activity+json".to_string()).await
             } else {
                 false
             }
@@ -767,13 +999,13 @@ pub async fn send_note(params: SendParams) -> bool {
 }
 
 #[wasm_bindgen]
-pub async fn send_encrypted_message(params: SendParams) -> bool {
+pub async fn send_encrypted_note(params: SendParams) -> bool {
     // I'm probably doing this badly; I'm trying to appease the compiler
     // warning me about holding the lock across the await further down
     let state = &*ENIGMATICK_STATE;
     let state = { if let Ok(x) = state.try_lock() { Option::from(x.clone()) } else { Option::None }};
 
-    log("in send_encrypted_message");
+    log("in send_encrypted_note");
     
     if let Some(state) = state {
         log("in state");
@@ -786,10 +1018,17 @@ pub async fn send_encrypted_message(params: SendParams) -> bool {
                                      profile.username.clone());
                 
                 let id = format!("https://enigmatick.jdt.dev/user/{}", profile.username.clone());
-                let mut encrypted_message = ApEncryptedMessage::from(params);
+                let mut encrypted_message = ApNote::from(params);
                 encrypted_message.attributed_to = id;
 
-                send_post(outbox, serde_json::to_string(&encrypted_message).unwrap()).await
+                
+                if send_post(outbox,
+                             serde_json::to_string(&encrypted_message).unwrap(),
+                             "application/activity+json".to_string()).await {
+                    send_updated_olm_sessions().await
+                } else {
+                    false
+                }
             } else {
                 false
             }
@@ -801,7 +1040,7 @@ pub async fn send_encrypted_message(params: SendParams) -> bool {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub enum ApBasicContentType {
     IdentityKey,
     SessionKey,
@@ -834,8 +1073,9 @@ pub enum ApInstrument {
 #[derive(Serialize, Deserialize, Default, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct ApSession {
+    #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "@context")]
-    context: String,
+    context: Option<String>,
     #[serde(rename = "type")]
     kind: String,
     id: Option<String>,
@@ -848,7 +1088,7 @@ pub struct ApSession {
 impl From<KexInitParams> for ApSession {
     fn from(params: KexInitParams) -> Self {
         ApSession {
-            context: "https://www.w3.org/ns/activitystreams".to_string(),
+            context: Option::from("https://www.w3.org/ns/activitystreams".to_string()),
             kind: "EncryptedSession".to_string(),
             to: params.recipient,
             instrument: ApInstrument::Single(Box::new(ApObject::Basic(ApBasicContent {
@@ -907,7 +1147,9 @@ pub async fn send_kex_init(params: KexInitParams) -> bool {
                 let mut encrypted_session = ApSession::from(params);
                 encrypted_session.attributed_to = id;
 
-                send_post(outbox, serde_json::to_string(&encrypted_session).unwrap()).await
+                send_post(outbox,
+                          serde_json::to_string(&encrypted_session).unwrap(),
+                          "application/activity+json".to_string()).await
             } else {
                 false
             }
