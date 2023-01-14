@@ -763,8 +763,8 @@ pub enum ApObject {
 }
 
 #[wasm_bindgen]
-pub async fn get_inbox() -> Option<String> {
-    log("in get inbox");
+pub async fn get_processing_queue() -> Option<String> {
+    log("in get processing_queue");
     let state = &*ENIGMATICK_STATE;
     let state = { if let Ok(x) = state.try_lock() { Option::from(x.clone()) } else { Option::None }};
     
@@ -775,7 +775,7 @@ pub async fn get_inbox() -> Option<String> {
             if let Some(profile) = &state.profile {
                 log("in profile");
 
-                let inbox = format!("https://enigmatick.jdt.dev/user/{}/inbox",
+                let inbox = format!("https://enigmatick.jdt.dev/api/user/{}/processing_queue",
                                     profile.username.clone());
                 
                 let signature = sign(SignParams {
@@ -790,6 +790,7 @@ pub async fn get_inbox() -> Option<String> {
                     .header("Content-Type", "application/activity+json")
                     .send().await
                 {
+                    log(&format!("queue response\n{:#?}", resp.text().await));
                     if let Ok(ApObject::Collection(object)) = resp.json().await {
                         if let Some(items) = object.items.clone() {
                             for o in items {
@@ -854,6 +855,52 @@ pub async fn get_inbox() -> Option<String> {
     }
 }
 
+#[wasm_bindgen]
+pub async fn get_inbox() -> Option<String> {
+    log("in get inbox");
+    let state = &*ENIGMATICK_STATE;
+    let state = { if let Ok(x) = state.try_lock() { Option::from(x.clone()) } else { Option::None }};
+    
+    if let Some(state) = state {
+        log("in state");
+        if state.is_authenticated() {
+            log("in authenticated");
+            if let Some(profile) = &state.profile {
+                log("in profile");
+
+                let inbox = format!("https://enigmatick.jdt.dev/user/{}/inbox",
+                                    profile.username.clone());
+                
+                let signature = sign(SignParams {
+                    url: inbox.clone(),
+                    body: Option::None,
+                    method: Method::Get
+                });
+
+                if let Ok(resp) = Request::get(&inbox)
+                    .header("Enigmatick-Date", &signature.date)
+                    .header("Signature", &signature.signature)
+                    .header("Content-Type", "application/activity+json")
+                    .send().await
+                {
+                    if let Ok(ApObject::Collection(object)) = resp.json().await {
+                        Option::from(serde_json::to_string(&object).unwrap())
+                    } else {
+                        Option::None
+                    }
+                } else {
+                    Option::None
+                }
+            } else {
+                Option::None
+            }
+        } else {
+            Option::None
+        }
+    } else {
+        Option::None
+    }
+}
 
 pub async fn send_post(url: String, body: String, content_type: String) -> bool {
     let signature = sign(SignParams {
