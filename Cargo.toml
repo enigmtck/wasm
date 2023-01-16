@@ -14,7 +14,7 @@ target = "wasm32-unknown-unknown"
 [dependencies]
 wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
-gloo-net = { version = "0.2", features = ["json"] }
+gloo-net = { version = "0.2", features = ["json", "eventsource"] }
 serde = { version = "1", features = ["derive"] }
 getrandom = { version = "0.2", features = ["js"] }
 rsa = "0.7"
@@ -30,12 +30,15 @@ httpdate = "1"
 regex = "1"
 olm-rs = "2.2"
 
+futures = "0.3"
+
 [dependencies.web-sys]
 version = "0.3.60"
 features = [
   'Window',
   'Navigator',
-  'Performance'
+  'Performance',
+  'EventSource'
 ]
 
 # [package.metadata.wasm-pack.profile.release]

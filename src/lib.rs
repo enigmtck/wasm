@@ -1,6 +1,8 @@
 #![allow(non_upper_case_globals)]
 
 use gloo_net::http::Request;
+use gloo_net::eventsource::futures::{EventSource};
+use futures::{stream, StreamExt};
 use orion::aead::SecretKey;
 use wasm_bindgen::prelude::*;
 use serde::{Serialize, Deserialize};
@@ -12,6 +14,7 @@ use rsa::{pkcs8::DecodePrivateKey, pkcs8::EncodePublicKey, pkcs8::EncodePrivateK
 use sha2::{Digest, Sha256};
 use orion::{aead, kdf};
 use base64::{encode, decode};
+use wasm_bindgen_futures::spawn_local;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::fmt::{self, Debug};
@@ -30,6 +33,31 @@ extern "C" {
 extern "C" {
     #[wasm_bindgen(js_namespace = Date, js_name = now)]
     fn date_now() -> f64;
+}
+
+#[wasm_bindgen]
+pub fn init_sse() {
+    match EventSource::new("/events") {
+        Ok(mut es) => {
+            log(&format!("{:#?}", es));
+            match es.subscribe("message") {
+                Ok(mut stream_1) => {
+                    //let stream_2 = es.subscribe("an-event-type").unwrap();
+                    log(&format!("{:#?}", stream_1));
+                    
+                    spawn_local(async move {
+                        //let mut all_streams = stream::select(stream_1, stream_2);
+                        while let Some(Ok((event_type, msg))) = stream_1.next().await {
+                            log("received event");
+                        }
+                        log("event source closed");
+                    })
+                },
+                Err(e) => log(&format!("{:#?}", e))
+            }
+        },
+        Err(e) => log(&format!("{:#?}", e))
+    }
 }
 
 #[wasm_bindgen(getter_with_clone)]
@@ -228,6 +256,10 @@ pub struct KeyStore {
     // other parties; the format is https://server/user/username -> base64-encoded-identitykey
     pub olm_external_identity_keys: HashMap<String, String>,
 
+    // olm_external_one_time_keys is a cache of keys to use for decrypting messages with
+    // other parties; the format is https://server/user/username -> base64-encoded-onetimekey
+    pub olm_external_one_time_keys: HashMap<String, String>,
+
     // olm_sessions is a HashMap<String, String> that maps user identities to pickled Olm
     // sessions; the HashMap is stored via serde_json::to_string -> AEAD encrypt -> base64
     pub olm_sessions: String,
@@ -287,7 +319,7 @@ pub async fn authenticate(username: String,
 
     if let Ok(passphrase) = kdf::Password::from_slice(passphrase.as_bytes()) {
         log("in passphrase");
-        if let Ok(x) = Request::post("http://localhost:8010/api/user/authenticate").json(&req) {   
+        if let Ok(x) = Request::post("/api/user/authenticate").json(&req) {   
             if let Ok(y) = x.send().await {
                 log("in request");
                 let state = &*ENIGMATICK_STATE.clone();
@@ -405,6 +437,7 @@ pub async fn create_user(username: String,
                     let olm_one_time_keys: HashMap<String, Vec<u8>> =
                         serde_json::from_str(&olm_one_time_keys).unwrap();
                     let olm_external_identity_keys: HashMap<String, String> = HashMap::new();
+                    let olm_external_one_time_keys: HashMap<String, String> = HashMap::new();
                     
                     if let Ok(keystore) = serde_json::to_string(&KeyStore {
                         client_private_key,
@@ -413,6 +446,7 @@ pub async fn create_user(username: String,
                         olm_one_time_keys,
                         olm_pickled_account,
                         olm_external_identity_keys,
+                        olm_external_one_time_keys,
                         olm_sessions,
                     }) {
 
@@ -426,7 +460,7 @@ pub async fn create_user(username: String,
                         };
                         
                         if let Ok(x) =
-                            Request::post("http://localhost:8010/api/user/create").json(&req) {   
+                            Request::post("/api/user/create").json(&req) {   
                             if let Ok(y) = x.send().await {
                                 let state = &*ENIGMATICK_STATE.clone();
                                 let user = y.json().await.ok();
@@ -790,7 +824,7 @@ pub async fn get_processing_queue() -> Option<String> {
                     .header("Content-Type", "application/activity+json")
                     .send().await
                 {
-                    log(&format!("queue response\n{:#?}", resp.text().await));
+                    //log(&format!("queue response\n{:#?}", resp.text().await));
                     if let Ok(ApObject::Collection(object)) = resp.json().await {
                         if let Some(items) = object.items.clone() {
                             for o in items {
