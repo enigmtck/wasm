@@ -39,11 +39,11 @@ extern "C" {
 pub fn init_sse() {
     match EventSource::new("/events") {
         Ok(mut es) => {
-            log(&format!("{:#?}", es));
+            log(&format!("{es:#?}"));
             match es.subscribe("message") {
                 Ok(mut stream_1) => {
                     //let stream_2 = es.subscribe("an-event-type").unwrap();
-                    log(&format!("{:#?}", stream_1));
+                    log(&format!("{stream_1:#?}"));
                     
                     spawn_local(async move {
                         //let mut all_streams = stream::select(stream_1, stream_2);
@@ -53,16 +53,25 @@ pub fn init_sse() {
                         log("event source closed");
                     })
                 },
-                Err(e) => log(&format!("{:#?}", e))
+                Err(e) => log(&format!("{e:#?}"))
             }
         },
-        Err(e) => log(&format!("{:#?}", e))
+        Err(e) => log(&format!("{e:#?}"))
     }
 }
 
 #[wasm_bindgen(getter_with_clone)]
 #[derive(Default, Clone, Serialize, Deserialize, Debug)]
 pub struct EnigmatickState {
+    // e.g., enigmatick.jdt.dev or 192.168.1.1:8080
+    // pulled from /api/v2/instance
+    server_name: Option<String>,
+
+    // e.g., https://enigmatick.jdt.dev or http://192.168.1.1:8080
+    // pulled from /api/v2/instance
+    server_url: Option<String>,
+
+    // self-explanatory
     authenticated: bool,
     
     // this is stored in state because derivation is expensive
@@ -93,6 +102,24 @@ impl EnigmatickState {
         EnigmatickState::default()
     }
 
+    pub fn set_server_name(&mut self, server_name: String) -> Self {
+        self.server_name = Option::from(server_name);
+        self.clone()
+    }
+
+    pub fn get_server_name(&self) -> Option<String> {
+        self.server_name.clone()
+    }
+
+    pub fn set_server_url(&mut self, server_url: String) -> Self {
+        self.server_url = Option::from(server_url);
+        self.clone()
+    }
+
+    pub fn get_server_url(&self) -> Option<String> {
+        self.server_url.clone()
+    }
+    
     pub fn cache_external_identity_key(&mut self, ap_id: String, identity_key: String) -> Self {
         if let Some(keystore) = &self.keystore {
             let mut keystore = keystore.clone();
@@ -330,7 +357,7 @@ pub async fn authenticate(username: String,
                     log("in lock");
                     x.authenticated = true;
 
-                    log(&format!("user\n{:#?}", user));
+                    log(&format!("user\n{user:#?}"));
                     let user: Profile = user.clone().unwrap();
                     x.set_profile(user.clone());
                     log("after profile");
@@ -372,10 +399,10 @@ pub async fn authenticate(username: String,
                             log("in decrypted olm_sessions");
                             match String::from_utf8(decrypted_olm_sessions) {
                                 Ok(y) => {
-                                    log(&format!("olm_sessions: {:#?}", y));
+                                    log(&format!("olm_sessions: {y:#?}"));
                                     x.set_olm_sessions(y);
                                 },
-                                Err(e) => log(&format!("olm_sessions error: {:#?}", e))
+                                Err(e) => log(&format!("olm_sessions error: {e:#?}"))
                             }           
                         }
                     }
@@ -450,7 +477,7 @@ pub async fn create_user(username: String,
                         olm_sessions,
                     }) {
 
-                        log(&format!("serialized keystore\n{:#?}", keystore));
+                        log(&format!("serialized keystore\n{keystore:#?}"));
                         let req = NewUser {
                             username,
                             password,
@@ -509,7 +536,8 @@ impl fmt::Display for Method {
 
 #[derive(Clone)]
 pub struct SignParams {
-    pub url: String,
+    pub host: String,
+    pub request_target: String,
     pub body: Option<String>,
     pub method: Method,
 }
@@ -532,17 +560,19 @@ pub fn sign(params: SignParams) -> SignResponse {
             let mut hasher = Sha256::new();
             hasher.update(body.as_bytes());
             let hashed = base64::encode(hasher.finalize());
-            Option::from(format!("sha-256={}", hashed))
+            Option::from(format!("sha-256={hashed}"))
         } else {
             Option::None
         }
     };
 
-    let url = Url::parse(&params.url).unwrap();
-    let host = url.host().unwrap().to_string();
+    // let url = Url::parse(&params.url).unwrap();
+    // let host = url.host().unwrap().to_string();
     let request_target = format!("{} {}",
                                  params.method.to_string().to_lowercase(),
-                                 url.path());
+                                 params.request_target);
+
+    let host = params.host;
 
     fn perf_to_system(amt: f64) -> std::time::SystemTime {
         let secs = (amt as u64) / 1_000;
@@ -562,20 +592,19 @@ pub fn sign(params: SignParams) -> SignResponse {
 
             let structured_data = {
                 if let Some(digest) = digest.clone() {
-                    Option::from(format!(
-                        "(request-target): {}\nhost: {}\ndate: {}\ndigest: {}",
-                        request_target,
-                        host,
-                        date,
-                        digest
-                    ))
+                    let signed_string = format!(
+                        "(request-target): {request_target}\nhost: {host}\ndate: {date}\ndigest: {digest}"
+                    );
+
+                    log(&format!("signed string\n{signed_string}"));
+                    Option::from(signed_string)
                 } else {
-                    Option::from(format!(
-                        "(request-target): {}\nhost: {}\ndate: {}",
-                        request_target,
-                        host,
-                        date
-                    ))
+                    let signed_string = format!(
+                        "(request-target): {request_target}\nhost: {host}\ndate: {date}"
+                    );
+
+                    log(&format!("signed string\n{signed_string}"));
+                    Option::from(signed_string)
                 }
             };
 
@@ -586,7 +615,7 @@ pub fn sign(params: SignParams) -> SignResponse {
                 if let Some(digest) = digest {
                     SignResponse {
                         signature: format!(
-                            "keyId=\"https://enigmatick.jdt.dev/user/{}#client-key\",headers=\"(request-target) host date digest\",signature=\"{}\"",
+                            "keyId=\"http://172.16.227.130:8010/user/{}#client-key\",headers=\"(request-target) host date digest\",signature=\"{}\"",
                             profile.username,
                             base64::encode(signature.as_bytes())),
                         date,
@@ -595,7 +624,7 @@ pub fn sign(params: SignParams) -> SignResponse {
                 } else {
                     SignResponse {
                         signature: format!(
-                            "keyId=\"https://enigmatick.jdt.dev/user/{}#client-key\",headers=\"(request-target) host date\",signature=\"{}\"",
+                            "keyId=\"http://172.16.227.130:8010/user/{}#client-key\",headers=\"(request-target) host date\",signature=\"{}\"",
                             profile.username,
                             base64::encode(signature.as_bytes())),
                         date,
@@ -809,11 +838,12 @@ pub async fn get_processing_queue() -> Option<String> {
             if let Some(profile) = &state.profile {
                 log("in profile");
 
-                let inbox = format!("https://enigmatick.jdt.dev/api/user/{}/processing_queue",
+                let inbox = format!("/api/user/{}/processing_queue",
                                     profile.username.clone());
                 
                 let signature = sign(SignParams {
-                    url: inbox.clone(),
+                    host: "172.16.227.130:8010".to_string(),
+                    request_target: inbox.clone(),
                     body: Option::None,
                     method: Method::Get
                 });
@@ -902,11 +932,12 @@ pub async fn get_inbox() -> Option<String> {
             if let Some(profile) = &state.profile {
                 log("in profile");
 
-                let inbox = format!("https://enigmatick.jdt.dev/user/{}/inbox",
+                let inbox = format!("/user/{}/inbox",
                                     profile.username.clone());
                 
                 let signature = sign(SignParams {
-                    url: inbox.clone(),
+                    host: "172.16.227.130:8010".to_string(),
+                    request_target: inbox.clone(),
                     body: Option::None,
                     method: Method::Get
                 });
@@ -938,7 +969,8 @@ pub async fn get_inbox() -> Option<String> {
 
 pub async fn send_post(url: String, body: String, content_type: String) -> bool {
     let signature = sign(SignParams {
-        url: url.clone(),
+        host: "172.16.227.130:8010".to_string(),
+        request_target: url.clone(),
         body: Option::from(body.clone()),
         method: Method::Post
     });
@@ -967,7 +999,7 @@ pub async fn send_updated_identity_cache() -> bool {
     }};
 
     if let (Some(keystore), Some(profile)) = (keystore, profile) {
-        let url = format!("https://enigmatick.jdt.dev/api/user/{}/update_identity_cache",
+        let url = format!("/api/user/{}/update_identity_cache",
                           profile.username);
 
         let data = serde_json::to_string(&keystore).unwrap();
@@ -992,7 +1024,7 @@ pub async fn send_updated_olm_sessions() -> bool {
     }};
 
     if let (Some(keystore), Some(profile)) = (keystore, profile) {
-        let url = format!("https://enigmatick.jdt.dev/api/user/{}/update_olm_sessions",
+        let url = format!("/api/user/{}/update_olm_sessions",
                           profile.username);
 
         let data = serde_json::to_string(&keystore).unwrap();
@@ -1058,7 +1090,7 @@ pub async fn send_note(params: SendParams) -> bool {
             if let Some(profile) = &state.profile {
                 log("in profile");
 
-                let outbox = format!("https://enigmatick.jdt.dev/user/{}/outbox",
+                let outbox = format!("/user/{}/outbox",
                                      profile.username.clone());
                 
                 let id = format!("https://enigmatick.jdt.dev/user/{}", profile.username.clone());
@@ -1095,7 +1127,7 @@ pub async fn send_encrypted_note(params: SendParams) -> bool {
             if let Some(profile) = &state.profile {
                 log("in profile");
 
-                let outbox = format!("https://enigmatick.jdt.dev/user/{}/outbox",
+                let outbox = format!("/user/{}/outbox",
                                      profile.username.clone());
                 
                 let id = format!("https://enigmatick.jdt.dev/user/{}", profile.username.clone());
@@ -1221,7 +1253,7 @@ pub async fn send_kex_init(params: KexInitParams) -> bool {
             if let Some(profile) = &state.profile {
                 log("in profile");
 
-                let outbox = format!("https://enigmatick.jdt.dev/user/{}/outbox",
+                let outbox = format!("/user/{}/outbox",
                                      profile.username.clone());
                 
                 let id = format!("https://enigmatick.jdt.dev/user/{}", profile.username.clone());
@@ -1285,6 +1317,55 @@ pub async fn get_webfinger(address: String) -> Option<String> {
             } else {
                 Option::None
             }
+        } else {
+            Option::None
+        }
+    } else {
+        Option::None
+    }
+}
+
+#[wasm_bindgen(getter_with_clone)]
+#[derive(Serialize, Deserialize, Default, Clone)]
+pub struct RegistrationInformation {
+    pub enabled: bool,
+    pub approval_required: bool,
+    pub message: Option<String>,
+}
+
+#[wasm_bindgen(getter_with_clone)]
+#[derive(Serialize, Deserialize, Default, Clone)]
+pub struct ContactInformation {
+    pub contact: String,
+}
+
+#[wasm_bindgen(getter_with_clone)]
+#[derive(Serialize, Deserialize, Default, Clone)]
+pub struct InstanceInformation {
+    pub domain: String,
+    pub url: String,
+    pub title: String,
+    pub version: String,
+    pub source_url: String,
+    pub description: String,
+    pub registrations: RegistrationInformation,
+    pub contact: ContactInformation,
+}
+
+#[wasm_bindgen]
+pub async fn load_instance_information() -> Option<InstanceInformation> {
+    let url = "/api/v2/instance";
+    
+    if let Ok(x) = Request::get(url).send().await {
+        if let Ok(instance) = x.json::<InstanceInformation>().await {
+
+            if let Ok(mut x) = (*ENIGMATICK_STATE).try_lock() {
+                let instance = instance.clone();
+                x.set_server_name(instance.domain);
+                x.set_server_url(instance.url);
+            }
+            
+            Option::from(instance)
         } else {
             Option::None
         }
