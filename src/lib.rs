@@ -15,6 +15,7 @@ use sha2::{Digest, Sha256};
 use orion::{aead, kdf};
 use base64::{encode, decode};
 use wasm_bindgen_futures::spawn_local;
+use web_sys::ReadableStream;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::fmt::{self, Debug};
@@ -534,11 +535,12 @@ impl fmt::Display for Method {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct SignParams {
     pub host: String,
     pub request_target: String,
     pub body: Option<String>,
+    pub data: Option<Vec<u8>>,
     pub method: Method,
 }
 
@@ -554,11 +556,18 @@ pub fn sign(params: SignParams) -> SignResponse {
     // host: ser.endipito.us
     // date: Tue, 20 Dec 2022 22:02:48 GMT
     // digest: sha-256=uus37v4gf3z6ze+jtuyk+8xsT01FhYOi/rOoDfFV1u4=
+
+    log(&format!("in sign\n{params:#?}"));
     
     let digest = {
         if let Some(body) = params.body {
             let mut hasher = Sha256::new();
             hasher.update(body.as_bytes());
+            let hashed = base64::encode(hasher.finalize());
+            Option::from(format!("sha-256={hashed}"))
+        } else if let Some(data) = params.data {
+            let mut hasher = Sha256::new();
+            hasher.update(data);
             let hashed = base64::encode(hasher.finalize());
             Option::from(format!("sha-256={hashed}"))
         } else {
@@ -615,7 +624,8 @@ pub fn sign(params: SignParams) -> SignResponse {
                 if let Some(digest) = digest {
                     SignResponse {
                         signature: format!(
-                            "keyId=\"http://172.16.227.130:8010/user/{}#client-key\",headers=\"(request-target) host date digest\",signature=\"{}\"",
+                            "keyId=\"{}/user/{}#client-key\",headers=\"(request-target) host date digest\",signature=\"{}\"",
+                            x.server_url.clone().unwrap(),
                             profile.username,
                             base64::encode(signature.as_bytes())),
                         date,
@@ -624,7 +634,8 @@ pub fn sign(params: SignParams) -> SignResponse {
                 } else {
                     SignResponse {
                         signature: format!(
-                            "keyId=\"http://172.16.227.130:8010/user/{}#client-key\",headers=\"(request-target) host date\",signature=\"{}\"",
+                            "keyId=\"{}/user/{}#client-key\",headers=\"(request-target) host date\",signature=\"{}\"",
+                            x.server_url.clone().unwrap(),
                             profile.username,
                             base64::encode(signature.as_bytes())),
                         date,
@@ -842,9 +853,10 @@ pub async fn get_processing_queue() -> Option<String> {
                                     profile.username.clone());
                 
                 let signature = sign(SignParams {
-                    host: "172.16.227.130:8010".to_string(),
+                    host: state.server_name.unwrap(),
                     request_target: inbox.clone(),
                     body: Option::None,
+                    data: Option::None,
                     method: Method::Get
                 });
 
@@ -936,9 +948,10 @@ pub async fn get_inbox() -> Option<String> {
                                     profile.username.clone());
                 
                 let signature = sign(SignParams {
-                    host: "172.16.227.130:8010".to_string(),
+                    host: state.server_name.unwrap(),
                     request_target: inbox.clone(),
                     body: Option::None,
+                    data: Option::None,
                     method: Method::Get
                 });
 
@@ -967,21 +980,49 @@ pub async fn get_inbox() -> Option<String> {
     }
 }
 
-pub async fn send_post(url: String, body: String, content_type: String) -> bool {
-    let signature = sign(SignParams {
-        host: "172.16.227.130:8010".to_string(),
-        request_target: url.clone(),
-        body: Option::from(body.clone()),
-        method: Method::Post
-    });
+pub async fn send_post(url: String, body: String, content_type: String) -> Option<String> {
+    let state = {
+        if let Ok(x) = (*ENIGMATICK_STATE).try_lock() {
+            Option::from(x.clone()) } else { Option::None }
+    };
 
-    Request::post(&url)
-        .header("Enigmatick-Date", &signature.date)
-        .header("Digest", &signature.digest.unwrap())
-        .header("Signature", &signature.signature)
-        .header("Content-Type", &content_type)
-        .body(body)
-        .send().await.is_ok()
+    log("in send_post");
+    
+    if let Some(state) = state {
+        log(&format!("in state\n{state:#?}"));
+        let signature = sign(SignParams {
+            host: state.server_name.unwrap(),
+            request_target: url.clone(),
+            body: Option::from(body.clone()),
+            data: Option::None,
+            method: Method::Post
+        });
+
+        log("pre send");
+        match Request::post(&url)
+            .header("Enigmatick-Date", &signature.date)
+            .header("Digest", &signature.digest.unwrap())
+            .header("Signature", &signature.signature)
+            .header("Content-Type", &content_type)
+            .body(body)
+            .send()
+            .await {
+                Ok(x) => match x.text().await {
+                    Ok(x) => Option::from(x),
+                    Err(e) => {
+                        log(&format!("{e:#?}"));
+                        Option::None
+                    }
+                },
+                Err(e) => {
+                    log(&format!("{e:#?}"));
+                    Option::None
+                }
+            }
+    } else {
+        log("in no state");
+        Option::None
+    }
 }
 
 pub async fn send_updated_identity_cache() -> bool {
@@ -1003,7 +1044,7 @@ pub async fn send_updated_identity_cache() -> bool {
                           profile.username);
 
         let data = serde_json::to_string(&keystore).unwrap();
-        send_post(url, data, "application/json".to_string()).await
+        send_post(url, data, "application/json".to_string()).await.is_some()
     } else {
         false
     }
@@ -1028,7 +1069,7 @@ pub async fn send_updated_olm_sessions() -> bool {
                           profile.username);
 
         let data = serde_json::to_string(&keystore).unwrap();
-        send_post(url, data, "application/json".to_string()).await
+        send_post(url, data, "application/json".to_string()).await.is_some()
     } else {
         false
     }
@@ -1093,13 +1134,15 @@ pub async fn send_note(params: SendParams) -> bool {
                 let outbox = format!("/user/{}/outbox",
                                      profile.username.clone());
                 
-                let id = format!("https://enigmatick.jdt.dev/user/{}", profile.username.clone());
+                let id = format!("{}/user/{}",
+                                 state.server_url.unwrap(),
+                                 profile.username.clone());
                 let mut note = ApNote::from(params);
                 note.attributed_to = id;
 
                 send_post(outbox,
                           serde_json::to_string(&note).unwrap(),
-                          "application/activity+json".to_string()).await
+                          "application/activity+json".to_string()).await.is_some()
             } else {
                 false
             }
@@ -1130,14 +1173,16 @@ pub async fn send_encrypted_note(params: SendParams) -> bool {
                 let outbox = format!("/user/{}/outbox",
                                      profile.username.clone());
                 
-                let id = format!("https://enigmatick.jdt.dev/user/{}", profile.username.clone());
+                let id = format!("{}/user/{}",
+                                 state.server_url.unwrap(),
+                                 profile.username.clone());
                 let mut encrypted_message = ApNote::from(params);
                 encrypted_message.attributed_to = id;
 
                 
                 if send_post(outbox,
                              serde_json::to_string(&encrypted_message).unwrap(),
-                             "application/activity+json".to_string()).await {
+                             "application/activity+json".to_string()).await.is_some() {
                     send_updated_olm_sessions().await
                 } else {
                     false
@@ -1256,13 +1301,15 @@ pub async fn send_kex_init(params: KexInitParams) -> bool {
                 let outbox = format!("/user/{}/outbox",
                                      profile.username.clone());
                 
-                let id = format!("https://enigmatick.jdt.dev/user/{}", profile.username.clone());
+                let id = format!("{}/user/{}",
+                                 state.server_url.unwrap(),
+                                 profile.username.clone());
                 let mut encrypted_session = ApSession::from(params);
                 encrypted_session.attributed_to = id;
 
                 send_post(outbox,
                           serde_json::to_string(&encrypted_session).unwrap(),
-                          "application/activity+json".to_string()).await
+                          "application/activity+json".to_string()).await.is_some()
             } else {
                 false
             }
@@ -1366,6 +1413,95 @@ pub async fn load_instance_information() -> Option<InstanceInformation> {
             }
             
             Option::from(instance)
+        } else {
+            Option::None
+        }
+    } else {
+        Option::None
+    }
+}
+
+#[wasm_bindgen]
+pub async fn upload_avatar(data: &[u8], length: u32) {
+
+    let state = &*ENIGMATICK_STATE;
+    let state = { if let Ok(x) = state.try_lock() { Option::from(x.clone()) } else { Option::None }};
+
+    log("in upload_avatar");
+    
+    if let Some(state) = state {
+        log("in state");
+        if state.is_authenticated() {
+            log("in authenticated");
+            if let Some(profile) = &state.profile {
+                log("in profile");
+
+                let j = js_sys::Uint8Array::new_with_length(length);
+                j.copy_from(data);
+
+                let upload = format!("/api/user/{}/avatar",
+                                     profile.username.clone());
+                
+                let signature = sign(SignParams {
+                    host: state.server_name.unwrap(),
+                    request_target: upload.clone(),
+                    body: Option::None,
+                    data: Option::from(Vec::from(data)),
+                    method: Method::Post
+                });
+
+                if let Ok(resp) = Request::post(&upload)
+                    .header("Enigmatick-Date", &signature.date)
+                    .header("Digest", &signature.digest.unwrap())
+                    .header("Signature", &signature.signature)
+                    .header("Content-Type", "application/octet-stream")
+                    .body(j)
+                    .send().await
+                {
+                    log(&format!("upload completed\n{resp:#?}"));
+                }
+            }
+        }
+    }
+}
+
+
+#[wasm_bindgen]
+pub async fn get_actor(webfinger: String) -> Option<String> {
+    let state = &*ENIGMATICK_STATE;
+    let state = { if let Ok(x) = state.try_lock() { Option::from(x.clone()) } else { Option::None }};
+
+    log("in get_actor");
+
+    #[derive(Debug, Clone, Default, Serialize)]
+    pub struct ActorParams {
+        webfinger: String,
+    }
+    
+    if let Some(state) = state {
+        log("in state");
+        if state.is_authenticated() {
+            log("in authenticated");
+            if let Some(profile) = &state.profile {
+                log("in profile");
+
+                let url = format!("/api/user/{}/remote",
+                                  profile.username.clone());
+
+                log(&format!("{url:#?}"));
+                
+                let params = ActorParams {
+                    webfinger
+                };
+
+                log(&format!("{params:#?}"));
+                
+                send_post(url,
+                          serde_json::to_string(&params).unwrap(),
+                          "application/json".to_string()).await
+            } else {
+                Option::None
+            }
         } else {
             Option::None
         }
