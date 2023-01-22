@@ -1,8 +1,7 @@
 #![allow(non_upper_case_globals)]
 
 use gloo_net::http::Request;
-use gloo_net::eventsource::futures::{EventSource};
-use futures::{stream, StreamExt};
+use futures::Future;
 use orion::aead::SecretKey;
 use wasm_bindgen::prelude::*;
 use serde::{Serialize, Deserialize};
@@ -14,12 +13,9 @@ use rsa::{pkcs8::DecodePrivateKey, pkcs8::EncodePublicKey, pkcs8::EncodePrivateK
 use sha2::{Digest, Sha256};
 use orion::{aead, kdf};
 use base64::{encode, decode};
-use wasm_bindgen_futures::spawn_local;
-use web_sys::ReadableStream;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::fmt::{self, Debug};
-use url::Url;
 use serde_json::Value;
 
 #[wasm_bindgen]
@@ -34,31 +30,6 @@ extern "C" {
 extern "C" {
     #[wasm_bindgen(js_namespace = Date, js_name = now)]
     fn date_now() -> f64;
-}
-
-#[wasm_bindgen]
-pub fn init_sse() {
-    match EventSource::new("/events") {
-        Ok(mut es) => {
-            log(&format!("{es:#?}"));
-            match es.subscribe("message") {
-                Ok(mut stream_1) => {
-                    //let stream_2 = es.subscribe("an-event-type").unwrap();
-                    log(&format!("{stream_1:#?}"));
-                    
-                    spawn_local(async move {
-                        //let mut all_streams = stream::select(stream_1, stream_2);
-                        while let Some(Ok((event_type, msg))) = stream_1.next().await {
-                            log("received event");
-                        }
-                        log("event source closed");
-                    })
-                },
-                Err(e) => log(&format!("{e:#?}"))
-            }
-        },
-        Err(e) => log(&format!("{e:#?}"))
-    }
 }
 
 #[wasm_bindgen(getter_with_clone)]
@@ -326,6 +297,29 @@ pub async fn get_state() -> EnigmatickState {
         x.clone()
     } else {
         EnigmatickState::default()
+    }
+}
+
+pub async fn authenticated<F, Fut>(f: F) -> Option<String> where F: FnOnce(EnigmatickState, Profile) -> Fut, Fut: Future<Output = Option<String>> {
+    let state = &*ENIGMATICK_STATE;
+    let state = { if let Ok(x) = state.try_lock() { Option::from(x.clone()) } else { Option::None }};
+    
+    if let Some(state) = state {
+        log("in state");
+        if state.is_authenticated() {
+            log("in authenticated");
+            if let Some(profile) = &state.profile.clone() {
+                log("in profile");
+
+                f(state, profile.clone()).await
+            } else {
+                Option::None
+            }
+        } else {
+            Option::None
+        }
+    } else {
+        Option::None
     }
 }
 
@@ -839,145 +833,113 @@ pub enum ApObject {
 #[wasm_bindgen]
 pub async fn get_processing_queue() -> Option<String> {
     log("in get processing_queue");
-    let state = &*ENIGMATICK_STATE;
-    let state = { if let Ok(x) = state.try_lock() { Option::from(x.clone()) } else { Option::None }};
     
-    if let Some(state) = state {
-        log("in state");
-        if state.is_authenticated() {
-            log("in authenticated");
-            if let Some(profile) = &state.profile {
-                log("in profile");
+    authenticated(move |state: EnigmatickState, profile: Profile| async move {
+        let inbox = format!("/api/user/{}/processing_queue",
+                            profile.username.clone());
+        
+        let signature = sign(SignParams {
+            host: state.server_name.unwrap(),
+            request_target: inbox.clone(),
+            body: Option::None,
+            data: Option::None,
+            method: Method::Get
+        });
 
-                let inbox = format!("/api/user/{}/processing_queue",
-                                    profile.username.clone());
-                
-                let signature = sign(SignParams {
-                    host: state.server_name.unwrap(),
-                    request_target: inbox.clone(),
-                    body: Option::None,
-                    data: Option::None,
-                    method: Method::Get
-                });
-
-                if let Ok(resp) = Request::get(&inbox)
-                    .header("Enigmatick-Date", &signature.date)
-                    .header("Signature", &signature.signature)
-                    .header("Content-Type", "application/activity+json")
-                    .send().await
-                {
-                    //log(&format!("queue response\n{:#?}", resp.text().await));
-                    if let Ok(ApObject::Collection(object)) = resp.json().await {
-                        if let Some(items) = object.items.clone() {
-                            for o in items {
-                                if let ApObject::Session(session) = o {
-                                    match session.instrument {
-                                        ApInstrument::Multiple(x) => {
-                                            for i in x {
-                                                if let ApObject::Basic(y) = i {
-                                                    if y.kind == ApBasicContentType::IdentityKey {
-                                                        if let Ok(mut x) =
-                                                            (*ENIGMATICK_STATE).try_lock()
-                                                        {
-                                                            log(&format!("caching: {:#?}",
-                                                                        session.attributed_to
-                                                                        .clone()));
-                                                            x.cache_external_identity_key(
-                                                                session.attributed_to.clone(),
-                                                                y.content);
-                                                        }
-                                                    }
+        if let Ok(resp) = Request::get(&inbox)
+            .header("Enigmatick-Date", &signature.date)
+            .header("Signature", &signature.signature)
+            .header("Content-Type", "application/activity+json")
+            .send().await
+        {
+            //log(&format!("queue response\n{:#?}", resp.text().await));
+            if let Ok(ApObject::Collection(object)) = resp.json().await {
+                if let Some(items) = object.items.clone() {
+                    for o in items {
+                        if let ApObject::Session(session) = o {
+                            match session.instrument {
+                                ApInstrument::Multiple(x) => {
+                                    for i in x {
+                                        if let ApObject::Basic(y) = i {
+                                            if y.kind == ApBasicContentType::IdentityKey {
+                                                if let Ok(mut x) =
+                                                    (*ENIGMATICK_STATE).try_lock()
+                                                {
+                                                    log(&format!("caching: {:#?}",
+                                                                 session.attributed_to
+                                                                 .clone()));
+                                                    x.cache_external_identity_key(
+                                                        session.attributed_to.clone(),
+                                                        y.content);
                                                 }
                                             }
-                                        },
-                                        ApInstrument::Single(x) => {
-                                            if let ApObject::Basic(y) = *x {
-                                                if y.kind == ApBasicContentType::IdentityKey {
-                                                    if let Ok(mut x) =
-                                                        (*ENIGMATICK_STATE).try_lock()
-                                                    {
-                                                        log(&format!("caching: {:#?}",
-                                                                     session.attributed_to
-                                                                     .clone()));
-                                                        x.cache_external_identity_key(
-                                                            session.attributed_to.clone(),
-                                                            y.content);
-                                                    }
-                                                }
-                                            }
-                                        },
-                                        _ => {
                                         }
                                     }
+                                },
+                                ApInstrument::Single(x) => {
+                                    if let ApObject::Basic(y) = *x {
+                                        if y.kind == ApBasicContentType::IdentityKey {
+                                            if let Ok(mut x) =
+                                                (*ENIGMATICK_STATE).try_lock()
+                                            {
+                                                log(&format!("caching: {:#?}",
+                                                             session.attributed_to
+                                                             .clone()));
+                                                x.cache_external_identity_key(
+                                                    session.attributed_to.clone(),
+                                                    y.content);
+                                            }
+                                        }
+                                    }
+                                },
+                                _ => {
                                 }
                             }
-                            send_updated_identity_cache().await;
                         }
-                        Option::from(serde_json::to_string(&object).unwrap())
-                    } else {
-                        Option::None
                     }
-                } else {
-                    Option::None
+                    send_updated_identity_cache().await;
                 }
+                Option::from(serde_json::to_string(&object).unwrap())
             } else {
                 Option::None
             }
         } else {
             Option::None
         }
-    } else {
-        Option::None
-    }
+    }).await
 }
 
 #[wasm_bindgen]
 pub async fn get_inbox() -> Option<String> {
     log("in get inbox");
-    let state = &*ENIGMATICK_STATE;
-    let state = { if let Ok(x) = state.try_lock() { Option::from(x.clone()) } else { Option::None }};
-    
-    if let Some(state) = state {
-        log("in state");
-        if state.is_authenticated() {
-            log("in authenticated");
-            if let Some(profile) = &state.profile {
-                log("in profile");
 
-                let inbox = format!("/user/{}/inbox",
-                                    profile.username.clone());
-                
-                let signature = sign(SignParams {
-                    host: state.server_name.unwrap(),
-                    request_target: inbox.clone(),
-                    body: Option::None,
-                    data: Option::None,
-                    method: Method::Get
-                });
+    authenticated(move |state: EnigmatickState, profile: Profile| async move {
+        let inbox = format!("/user/{}/inbox",
+                            profile.username.clone());
+        
+        let signature = sign(SignParams {
+            host: state.server_name.unwrap(),
+            request_target: inbox.clone(),
+            body: Option::None,
+            data: Option::None,
+            method: Method::Get
+        });
 
-                if let Ok(resp) = Request::get(&inbox)
-                    .header("Enigmatick-Date", &signature.date)
-                    .header("Signature", &signature.signature)
-                    .header("Content-Type", "application/activity+json")
-                    .send().await
-                {
-                    if let Ok(ApObject::Collection(object)) = resp.json().await {
-                        Option::from(serde_json::to_string(&object).unwrap())
-                    } else {
-                        Option::None
-                    }
-                } else {
-                    Option::None
-                }
+        if let Ok(resp) = Request::get(&inbox)
+            .header("Enigmatick-Date", &signature.date)
+            .header("Signature", &signature.signature)
+            .header("Content-Type", "application/activity+json")
+            .send().await
+        {
+            if let Ok(ApObject::Collection(object)) = resp.json().await {
+                Option::from(serde_json::to_string(&object).unwrap())
             } else {
                 Option::None
             }
         } else {
             Option::None
         }
-    } else {
-        Option::None
-    }
+    }).await
 }
 
 pub async fn send_post(url: String, body: String, content_type: String) -> Option<String> {
@@ -1026,75 +988,45 @@ pub async fn send_post(url: String, body: String, content_type: String) -> Optio
 }
 
 pub async fn send_updated_identity_cache() -> bool {
-    let state = &*ENIGMATICK_STATE;
-    let keystore: Option<KeyStore> = { if let Ok(x) = state.try_lock() {
-        x.clone().get_keystore()
-    } else {
-        Option::None
-    }};
+    authenticated(move |state: EnigmatickState, profile: Profile| async move {
+        if let Some(keystore) = state.get_keystore() {
+            let url = format!("/api/user/{}/update_identity_cache",
+                              profile.username);
 
-    let profile: Option<Profile> = { if let Ok(x) = state.try_lock() {
-        x.clone().get_profile()
-    } else {
-        Option::None
-    }};
-
-    if let (Some(keystore), Some(profile)) = (keystore, profile) {
-        let url = format!("/api/user/{}/update_identity_cache",
-                          profile.username);
-
-        let data = serde_json::to_string(&keystore).unwrap();
-        send_post(url, data, "application/json".to_string()).await.is_some()
-    } else {
-        false
-    }
+            let data = serde_json::to_string(&keystore).unwrap();
+            send_post(url, data, "application/json".to_string()).await
+        } else {
+            Option::None
+        }
+    }).await.is_some()
 }
 
 pub async fn send_updated_olm_sessions() -> bool {
-    let state = &*ENIGMATICK_STATE;
-    let keystore: Option<KeyStore> = { if let Ok(x) = state.try_lock() {
-        x.clone().get_keystore()
-    } else {
-        Option::None
-    }};
+    authenticated(move |state: EnigmatickState, profile: Profile| async move {
+        if let Some(keystore) = state.get_keystore() {
+            let url = format!("/api/user/{}/update_olm_sessions",
+                              profile.username);
 
-    let profile: Option<Profile> = { if let Ok(x) = state.try_lock() {
-        x.clone().get_profile()
-    } else {
-        Option::None
-    }};
-
-    if let (Some(keystore), Some(profile)) = (keystore, profile) {
-        let url = format!("/api/user/{}/update_olm_sessions",
-                          profile.username);
-
-        let data = serde_json::to_string(&keystore).unwrap();
-        send_post(url, data, "application/json".to_string()).await.is_some()
-    } else {
-        false
-    }
+            let data = serde_json::to_string(&keystore).unwrap();
+            send_post(url, data, "application/json".to_string()).await
+        } else {
+            Option::None
+        }
+    }).await.is_some()
 }
 
 #[wasm_bindgen]
 pub async fn send_updated_summary(summary: String) -> Option<String> {
-    let state = &*ENIGMATICK_STATE;
+    authenticated(move |_: EnigmatickState, profile: Profile| async move {
+        #[derive(Serialize, Deserialize)]
+        struct SummaryUpdate {
+            content: String
+        }
 
-    let profile: Option<Profile> = { if let Ok(x) = state.try_lock() {
-        x.clone().get_profile()
-    } else {
-        Option::None
-    }};
+        let data = SummaryUpdate { content: summary };
 
-    #[derive(Serialize, Deserialize)]
-    struct SummaryUpdate {
-        content: String
-    }
-
-    let data = SummaryUpdate { content: summary };
-
-    log("{data\ndata:#?}");
-    
-    if let Some(profile) = profile {
+        log("{data\ndata:#?}");
+        
         let url = format!("/api/user/{}/update/summary",
                           profile.username);
 
@@ -1102,9 +1034,7 @@ pub async fn send_updated_summary(summary: String) -> Option<String> {
         let data = serde_json::to_string(&data).unwrap();
         log("data\n{data:#?}");
         send_post(url, data, "application/json".to_string()).await
-    } else {
-        Option::None
-    }
+    }).await
 }
 
 #[wasm_bindgen]
@@ -1197,155 +1127,75 @@ impl From<FollowAction> for ApFollow {
 
 #[wasm_bindgen]
 pub async fn send_follow(address: String) -> bool {
-    // I'm probably doing this badly; I'm trying to appease the compiler
-    // warning me about holding the lock across the await further down
-    let state = &*ENIGMATICK_STATE;
-    let state = { if let Ok(x) = state.try_lock() { Option::from(x.clone()) } else { Option::None }};
+    authenticated(move |_: EnigmatickState, profile: Profile| async move {
+        let outbox = format!("/user/{}/outbox",
+                             profile.username.clone());
+        
+        let follow: ApFollow = (address, ApFollowType::Follow).into();
 
-    log("in send_follow");
-    
-    if let Some(state) = state {
-        log("in state");
-        if state.is_authenticated() {
-            log("in authenticated");
-            if let Some(profile) = &state.profile {
-                log("in profile");
-
-                let outbox = format!("/user/{}/outbox",
-                                     profile.username.clone());
-                
-                let follow: ApFollow = (address, ApFollowType::Follow).into();
-
-                send_post(outbox,
-                          serde_json::to_string(&follow).unwrap(),
-                          "application/activity+json".to_string()).await.is_some()
-            } else {
-                false
-            }
-        } else {
-            false
-        }
-    } else {
-        false
-    }
+        send_post(outbox,
+                  serde_json::to_string(&follow).unwrap(),
+                  "application/activity+json".to_string()).await
+    }).await.is_some()
 }
 
 #[wasm_bindgen]
 pub async fn send_unfollow(address: String) -> bool {
-    // I'm probably doing this badly; I'm trying to appease the compiler
-    // warning me about holding the lock across the await further down
-    let state = &*ENIGMATICK_STATE;
-    let state = { if let Ok(x) = state.try_lock() { Option::from(x.clone()) } else { Option::None }};
+    authenticated(move |_: EnigmatickState, profile: Profile| async move {
+        let outbox = format!("/user/{}/outbox",
+                             profile.username.clone());
+        
+        let follow: ApFollow = (address, ApFollowType::Undo).into();
 
-    log("in send_unfollow");
-    
-    if let Some(state) = state {
-        log("in state");
-        if state.is_authenticated() {
-            log("in authenticated");
-            if let Some(profile) = &state.profile {
-                log("in profile");
-
-                let outbox = format!("/user/{}/outbox",
-                                     profile.username.clone());
-                
-                let follow: ApFollow = (address, ApFollowType::Undo).into();
-
-                send_post(outbox,
-                          serde_json::to_string(&follow).unwrap(),
-                          "application/activity+json".to_string()).await.is_some()
-            } else {
-                false
-            }
-        } else {
-            false
-        }
-    } else {
-        false
-    }
+        send_post(outbox,
+                  serde_json::to_string(&follow).unwrap(),
+                  "application/activity+json".to_string()).await
+    }).await.is_some()
 }
 
 #[wasm_bindgen]
 pub async fn send_note(params: SendParams) -> bool {
-    // I'm probably doing this badly; I'm trying to appease the compiler
-    // warning me about holding the lock across the await further down
-    let state = &*ENIGMATICK_STATE;
-    let state = { if let Ok(x) = state.try_lock() { Option::from(x.clone()) } else { Option::None }};
+    authenticated(move |state: EnigmatickState, profile: Profile| async move {
+        let outbox = format!("/user/{}/outbox",
+                             profile.username.clone());
+        
+        let id = format!("{}/user/{}",
+                         state.server_url.unwrap(),
+                         profile.username.clone());
+        let mut note = ApNote::from(params);
+        note.attributed_to = id;
 
-    log("in send_note");
-    
-    if let Some(state) = state {
-        log("in state");
-        if state.is_authenticated() {
-            log("in authenticated");
-            if let Some(profile) = &state.profile {
-                log("in profile");
-
-                let outbox = format!("/user/{}/outbox",
-                                     profile.username.clone());
-                
-                let id = format!("{}/user/{}",
-                                 state.server_url.unwrap(),
-                                 profile.username.clone());
-                let mut note = ApNote::from(params);
-                note.attributed_to = id;
-
-                send_post(outbox,
-                          serde_json::to_string(&note).unwrap(),
-                          "application/activity+json".to_string()).await.is_some()
-            } else {
-                false
-            }
-        } else {
-            false
-        }
-    } else {
-        false
-    }
+        send_post(outbox,
+                  serde_json::to_string(&note).unwrap(),
+                  "application/activity+json".to_string()).await
+    }).await.is_some()
 }
 
 #[wasm_bindgen]
 pub async fn send_encrypted_note(params: SendParams) -> bool {
-    // I'm probably doing this badly; I'm trying to appease the compiler
-    // warning me about holding the lock across the await further down
-    let state = &*ENIGMATICK_STATE;
-    let state = { if let Ok(x) = state.try_lock() { Option::from(x.clone()) } else { Option::None }};
+    authenticated(move |state: EnigmatickState, profile: Profile| async move {
+        let outbox = format!("/user/{}/outbox",
+                             profile.username.clone());
+        
+        let id = format!("{}/user/{}",
+                         state.server_url.unwrap(),
+                         profile.username.clone());
+        let mut encrypted_message = ApNote::from(params);
+        encrypted_message.attributed_to = id;
 
-    log("in send_encrypted_note");
-    
-    if let Some(state) = state {
-        log("in state");
-        if state.is_authenticated() {
-            log("in authenticated");
-            if let Some(profile) = &state.profile {
-                log("in profile");
-
-                let outbox = format!("/user/{}/outbox",
-                                     profile.username.clone());
-                
-                let id = format!("{}/user/{}",
-                                 state.server_url.unwrap(),
-                                 profile.username.clone());
-                let mut encrypted_message = ApNote::from(params);
-                encrypted_message.attributed_to = id;
-
-                
-                if send_post(outbox,
-                             serde_json::to_string(&encrypted_message).unwrap(),
-                             "application/activity+json".to_string()).await.is_some() {
-                    send_updated_olm_sessions().await
-                } else {
-                    false
-                }
+        
+        if send_post(outbox,
+                     serde_json::to_string(&encrypted_message).unwrap(),
+                     "application/activity+json".to_string()).await.is_some() {
+            if send_updated_olm_sessions().await {
+                Option::from("{\"success\":true}".to_string())
             } else {
-                false
+                Option::None
             }
         } else {
-            false
+            Option::None
         }
-    } else {
-        false
-    }
+    }).await.is_some()
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
@@ -1369,14 +1219,6 @@ pub enum ApInstrument {
     #[default]
     Unknown,
 }
-
-// #[derive(Serialize, Deserialize, Default, Debug, Clone)]
-// #[serde(rename_all = "camelCase")]
-// pub struct ApInstrument {
-//     #[serde(rename = "type")]
-//     kind: String,
-//     content: String,
-// }
 
 #[derive(Serialize, Deserialize, Default, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -1434,41 +1276,20 @@ impl KexInitParams {
 
 #[wasm_bindgen]
 pub async fn send_kex_init(params: KexInitParams) -> bool {
-    // I'm probably doing this badly; I'm trying to appease the compiler
-    // warning me about holding the lock across the await further down
-    let state = &*ENIGMATICK_STATE;
-    let state = { if let Ok(x) = state.try_lock() { Option::from(x.clone()) } else { Option::None }};
+    authenticated(move |state: EnigmatickState, profile: Profile| async move {
+        let outbox = format!("/user/{}/outbox",
+                             profile.username.clone());
+        
+        let id = format!("{}/user/{}",
+                         state.server_url.unwrap(),
+                         profile.username.clone());
+        let mut encrypted_session = ApSession::from(params);
+        encrypted_session.attributed_to = id;
 
-    log("in send_kex_init");
-    
-    if let Some(state) = state {
-        log("in state");
-        if state.is_authenticated() {
-            log("in authenticated");
-            if let Some(profile) = &state.profile {
-                log("in profile");
-
-                let outbox = format!("/user/{}/outbox",
-                                     profile.username.clone());
-                
-                let id = format!("{}/user/{}",
-                                 state.server_url.unwrap(),
-                                 profile.username.clone());
-                let mut encrypted_session = ApSession::from(params);
-                encrypted_session.attributed_to = id;
-
-                send_post(outbox,
-                          serde_json::to_string(&encrypted_session).unwrap(),
-                          "application/activity+json".to_string()).await.is_some()
-            } else {
-                false
-            }
-        } else {
-            false
-        }
-    } else {
-        false
-    }
+        send_post(outbox,
+                  serde_json::to_string(&encrypted_session).unwrap(),
+                  "application/activity+json".to_string()).await
+    }).await.is_some()
 }
 
 #[derive(Serialize, Deserialize)]
@@ -1571,92 +1392,80 @@ pub async fn load_instance_information() -> Option<InstanceInformation> {
     }
 }
 
-#[wasm_bindgen]
-pub async fn upload_avatar(data: &[u8], length: u32, extension: String) {
+pub async fn upload_file(server_name: String, upload: String, data: &[u8], length: u32) -> Option<String> {
+    let j = js_sys::Uint8Array::new_with_length(length);
+    j.copy_from(data);
 
-    let state = &*ENIGMATICK_STATE;
-    let state = { if let Ok(x) = state.try_lock() { Option::from(x.clone()) } else { Option::None }};
+    let signature = sign(SignParams {
+        host: server_name,
+        request_target: upload.clone(),
+        body: Option::None,
+        data: Option::from(Vec::from(data)),
+        method: Method::Post
+    });
 
-    log("in upload_avatar");
-    
-    if let Some(state) = state {
-        log("in state");
-        if state.is_authenticated() {
-            log("in authenticated");
-            if let Some(profile) = &state.profile {
-                log("in profile");
-
-                let j = js_sys::Uint8Array::new_with_length(length);
-                j.copy_from(data);
-
-                let upload = format!("/api/user/{}/avatar?extension={}",
-                                     profile.username.clone(),
-                                     extension);
-                
-                let signature = sign(SignParams {
-                    host: state.server_name.unwrap(),
-                    request_target: upload.clone(),
-                    body: Option::None,
-                    data: Option::from(Vec::from(data)),
-                    method: Method::Post
-                });
-
-                if let Ok(resp) = Request::post(&upload)
-                    .header("Enigmatick-Date", &signature.date)
-                    .header("Digest", &signature.digest.unwrap())
-                    .header("Signature", &signature.signature)
-                    .header("Content-Type", "application/octet-stream")
-                    .body(j)
-                    .send().await
-                {
-                    log(&format!("upload completed\n{resp:#?}"));
-                }
-            }
-        }
-    }
-}
-
-
-#[wasm_bindgen]
-pub async fn get_actor(webfinger: String) -> Option<String> {
-    let state = &*ENIGMATICK_STATE;
-    let state = { if let Ok(x) = state.try_lock() { Option::from(x.clone()) } else { Option::None }};
-
-    log("in get_actor");
-
-    #[derive(Debug, Clone, Default, Serialize)]
-    pub struct ActorParams {
-        webfinger: String,
-    }
-    
-    if let Some(state) = state {
-        log("in state");
-        if state.is_authenticated() {
-            log("in authenticated");
-            if let Some(profile) = &state.profile {
-                log("in profile");
-
-                let url = format!("/api/user/{}/remote",
-                                  profile.username.clone());
-
-                log(&format!("{url:#?}"));
-                
-                let params = ActorParams {
-                    webfinger
-                };
-
-                log(&format!("{params:#?}"));
-                
-                send_post(url,
-                          serde_json::to_string(&params).unwrap(),
-                          "application/json".to_string()).await
-            } else {
-                Option::None
-            }
-        } else {
-            Option::None
-        }
+    if let Ok(resp) = Request::post(&upload)
+        .header("Enigmatick-Date", &signature.date)
+        .header("Digest", &signature.digest.unwrap())
+        .header("Signature", &signature.signature)
+        .header("Content-Type", "application/octet-stream")
+        .body(j)
+        .send().await
+    {
+        log(&format!("upload completed\n{resp:#?}"));
+        Option::from("{\"success\":true}".to_string())
     } else {
         Option::None
     }
+}
+
+#[wasm_bindgen]
+pub async fn upload_avatar(data: &[u8], length: u32, extension: String) {
+    authenticated(move |state: EnigmatickState, profile: Profile| async move {
+        let upload = format!("/api/user/{}/avatar?extension={}",
+                             profile.username.clone(),
+                             extension);
+
+        upload_file(state.server_name.unwrap(), upload, data, length).await;
+
+        Option::None
+    }).await;
+}
+
+#[wasm_bindgen]
+pub async fn upload_banner(data: &[u8], length: u32, extension: String) {
+    authenticated(move |state: EnigmatickState, profile: Profile| async move {
+        let upload = format!("/api/user/{}/avatar?extension={}",
+                             profile.username.clone(),
+                             extension);
+
+        upload_file(state.server_name.unwrap(), upload, data, length).await;
+
+        Option::None
+    }).await;
+}
+
+#[wasm_bindgen]
+pub async fn get_actor(webfinger: String) -> Option<String> {
+    authenticated(move |_: EnigmatickState, profile: Profile| async move {
+        #[derive(Debug, Clone, Default, Serialize)]
+        pub struct ActorParams {
+            webfinger: String,
+        }
+        
+        let url = format!("/api/user/{}/remote",
+                          profile.username.clone());
+
+        log(&format!("{url:#?}"));
+        
+        let params = ActorParams {
+            webfinger
+        };
+
+        log(&format!("{params:#?}"));
+        
+        send_post(url,
+                  serde_json::to_string(&params).unwrap(),
+                  "application/json".to_string()).await
+    }).await 
 }
