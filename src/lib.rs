@@ -1076,6 +1076,38 @@ pub async fn send_updated_olm_sessions() -> bool {
 }
 
 #[wasm_bindgen]
+pub async fn send_updated_summary(summary: String) -> Option<String> {
+    let state = &*ENIGMATICK_STATE;
+
+    let profile: Option<Profile> = { if let Ok(x) = state.try_lock() {
+        x.clone().get_profile()
+    } else {
+        Option::None
+    }};
+
+    #[derive(Serialize, Deserialize)]
+    struct SummaryUpdate {
+        content: String
+    }
+
+    let data = SummaryUpdate { content: summary };
+
+    log("{data\ndata:#?}");
+    
+    if let Some(profile) = profile {
+        let url = format!("/api/user/{}/update/summary",
+                          profile.username);
+
+        log("url\n{url:#?}");
+        let data = serde_json::to_string(&data).unwrap();
+        log("data\n{data:#?}");
+        send_post(url, data, "application/json".to_string()).await
+    } else {
+        Option::None
+    }
+}
+
+#[wasm_bindgen]
 pub fn update_keystore_olm_sessions(olm_sessions: String) -> bool {
     if let Ok(mut x) = (*ENIGMATICK_STATE).try_lock() {
         if let Some(derived_key) = &x.derived_key {
@@ -1112,6 +1144,124 @@ pub fn get_external_identity_key(ap_id: String) -> Option<String> {
         x.get_external_identity_key(ap_id)
     } else {
         Option::None
+    }
+}
+
+#[derive(Serialize, Deserialize, Default, Debug, Clone)]
+pub enum ApFollowType {
+    Follow,
+    Undo,
+    #[default]
+    Unknown
+}
+
+#[derive(Serialize, Deserialize, Default, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ApFollow {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "@context")]
+    context: Option<String>,
+    #[serde(rename = "type")]
+    kind: ApFollowType,
+    actor: String,
+    object: String,
+}
+
+type FollowAction = (String, ApFollowType);
+
+impl From<FollowAction> for ApFollow {
+    fn from(action: FollowAction) -> Self {
+        // I'm probably doing this badly; I'm trying to appease the compiler
+        // warning me about holding the lock across the await further down
+        let state = &*ENIGMATICK_STATE;
+        let state = { if let Ok(x) = state.try_lock() { Option::from(x.clone()) } else { Option::None }};
+
+        if let Some(state) = state {
+            if let (Some(server_url), Some(profile)) = (state.server_url, state.profile) {
+                let actor = format!("{}/user/{}", server_url, profile.username);
+        
+                ApFollow {
+                    context: Option::from("https://www.w3.org/ns/activitystreams".to_string()),
+                    kind: action.1,
+                    actor,
+                    object: action.0            
+                }
+            } else {
+                ApFollow::default()
+            }
+        } else {
+            ApFollow::default()
+        }
+    }
+}
+
+#[wasm_bindgen]
+pub async fn send_follow(address: String) -> bool {
+    // I'm probably doing this badly; I'm trying to appease the compiler
+    // warning me about holding the lock across the await further down
+    let state = &*ENIGMATICK_STATE;
+    let state = { if let Ok(x) = state.try_lock() { Option::from(x.clone()) } else { Option::None }};
+
+    log("in send_follow");
+    
+    if let Some(state) = state {
+        log("in state");
+        if state.is_authenticated() {
+            log("in authenticated");
+            if let Some(profile) = &state.profile {
+                log("in profile");
+
+                let outbox = format!("/user/{}/outbox",
+                                     profile.username.clone());
+                
+                let follow: ApFollow = (address, ApFollowType::Follow).into();
+
+                send_post(outbox,
+                          serde_json::to_string(&follow).unwrap(),
+                          "application/activity+json".to_string()).await.is_some()
+            } else {
+                false
+            }
+        } else {
+            false
+        }
+    } else {
+        false
+    }
+}
+
+#[wasm_bindgen]
+pub async fn send_unfollow(address: String) -> bool {
+    // I'm probably doing this badly; I'm trying to appease the compiler
+    // warning me about holding the lock across the await further down
+    let state = &*ENIGMATICK_STATE;
+    let state = { if let Ok(x) = state.try_lock() { Option::from(x.clone()) } else { Option::None }};
+
+    log("in send_unfollow");
+    
+    if let Some(state) = state {
+        log("in state");
+        if state.is_authenticated() {
+            log("in authenticated");
+            if let Some(profile) = &state.profile {
+                log("in profile");
+
+                let outbox = format!("/user/{}/outbox",
+                                     profile.username.clone());
+                
+                let follow: ApFollow = (address, ApFollowType::Undo).into();
+
+                send_post(outbox,
+                          serde_json::to_string(&follow).unwrap(),
+                          "application/activity+json".to_string()).await.is_some()
+            } else {
+                false
+            }
+        } else {
+            false
+        }
+    } else {
+        false
     }
 }
 
@@ -1422,7 +1572,7 @@ pub async fn load_instance_information() -> Option<InstanceInformation> {
 }
 
 #[wasm_bindgen]
-pub async fn upload_avatar(data: &[u8], length: u32) {
+pub async fn upload_avatar(data: &[u8], length: u32, extension: String) {
 
     let state = &*ENIGMATICK_STATE;
     let state = { if let Ok(x) = state.try_lock() { Option::from(x.clone()) } else { Option::None }};
@@ -1439,8 +1589,9 @@ pub async fn upload_avatar(data: &[u8], length: u32) {
                 let j = js_sys::Uint8Array::new_with_length(length);
                 j.copy_from(data);
 
-                let upload = format!("/api/user/{}/avatar",
-                                     profile.username.clone());
+                let upload = format!("/api/user/{}/avatar?extension={}",
+                                     profile.username.clone(),
+                                     extension);
                 
                 let signature = sign(SignParams {
                     host: state.server_name.unwrap(),
