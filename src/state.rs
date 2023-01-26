@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::wasm_bindgen;
 
-use crate::{ENIGMATICK_STATE, KeyStore, Profile};
+use crate::{ENIGMATICK_STATE, KeyStore, Profile, log};
 
 #[wasm_bindgen(getter_with_clone)]
 #[derive(Default, Clone, Serialize, Deserialize, Debug)]
@@ -166,6 +166,7 @@ impl EnigmatickState {
 
 #[wasm_bindgen]
 pub fn import_state(data: String) {
+    log("entering wasm import_state");
     let imported_state: EnigmatickState = serde_json::from_str(&data).unwrap();
 
     let state = &*ENIGMATICK_STATE.clone();
@@ -177,15 +178,20 @@ pub fn import_state(data: String) {
         x.set_profile(imported_state.profile.unwrap());
         x.set_keystore(imported_state.keystore.unwrap());
     };
+
+    log("exiting import_state");
 }
 
 #[wasm_bindgen]
 pub async fn get_state() -> EnigmatickState {
+    log("entering wasm get_state");
     let state = &*ENIGMATICK_STATE;
 
     if let Ok(x) = state.lock() {
+        log("exiting get_state lock");
         x.clone()
     } else {
+        log("exiting get_state no lock");
         EnigmatickState::default()
     }
 }

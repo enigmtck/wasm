@@ -47,6 +47,10 @@ impl From<SendParams> for ApNote {
 
         let mut recipients: Vec<String> = params.recipients.into_values().collect();
         recipients.extend(params.recipient_ids);
+
+        if recipients.is_empty() {
+            recipients.push("https://www.w3.org/ns/activitystreams#Public".to_string());
+        }
         
         ApNote {
             context: Option::from("https://www.w3.org/ns/activitystreams".to_string()),

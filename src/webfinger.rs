@@ -56,20 +56,20 @@ pub async fn get_webfinger(address: String) -> Option<String> {
 }
 
 #[wasm_bindgen]
-pub async fn get_actor(webfinger: String) -> Option<String> {
+pub async fn get_actor(id: String) -> Option<String> {
     authenticated(move |_: EnigmatickState, profile: Profile| async move {
         #[derive(Debug, Clone, Default, Serialize)]
         pub struct ActorParams {
-            webfinger: String,
+            id: String,
         }
         
-        let url = format!("/api/user/{}/remote",
+        let url = format!("/api/user/{}/remote/actor",
                           profile.username.clone());
 
         log(&format!("{url:#?}"));
         
         let params = ActorParams {
-            webfinger
+            id
         };
 
         log(&format!("{params:#?}"));

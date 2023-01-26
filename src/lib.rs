@@ -15,6 +15,7 @@ pub mod webfinger;
 pub mod keystore;
 pub mod instance;
 pub mod inbox;
+pub mod note;
 pub mod processing_queue;
 pub mod state;
 
@@ -25,6 +26,7 @@ pub use webfinger::*;
 pub use keystore::*;
 pub use instance::*;
 pub use inbox::*;
+pub use note::*;
 pub use processing_queue::*;
 pub use state::*;
 
