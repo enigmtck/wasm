@@ -18,6 +18,7 @@ pub mod inbox;
 pub mod note;
 pub mod processing_queue;
 pub mod state;
+pub mod timeline;
 
 pub use user::*;
 pub use crypto::*;
@@ -29,6 +30,7 @@ pub use inbox::*;
 pub use note::*;
 pub use processing_queue::*;
 pub use state::*;
+pub use timeline::*;
 
 #[wasm_bindgen]
 extern "C" {

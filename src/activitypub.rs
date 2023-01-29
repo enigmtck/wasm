@@ -1,8 +1,9 @@
-use std::{collections::HashMap, fmt::{self, Debug}};
+use std::{collections::HashMap, fmt::{self, Debug}, str::FromStr};
 
 use serde::{Serialize, Deserialize};
 use serde_json::Value;
 use wasm_bindgen::prelude::wasm_bindgen;
+use strum_macros::EnumString;
 
 use crate::{get_webfinger, KexInitParams, authenticated, EnigmatickState, Profile, send_post, send_updated_olm_sessions, ENIGMATICK_STATE};
 
@@ -14,36 +15,138 @@ pub enum ApFlexible {
     Multiple(Vec<Value>),
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub enum ApTagType {
+    Mention,
+    Hashtag,
+    Emoji,
+}
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
-pub struct ApTag {
+pub struct ApHashtag {
     #[serde(rename = "type")]
-    kind: String,
+    kind: ApTagType,
     name: String,
     href: String,
 }
 
-#[derive(Serialize, Deserialize, Default, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ApMention {
+    #[serde(rename = "type")]
+    kind: ApTagType,
+    name: String,
+    href: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub enum ApImageType {
+    Image,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ApImage {
+    #[serde(rename = "type")]
+    pub kind: ApImageType,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub media_type: Option<String>,
+    pub url: String,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct ApEmoji {
+    #[serde(rename = "type")]
+    kind: ApTagType,
+    id: Option<String>,
+    name: Option<String>,
+    updated: Option<String>,
+    icon: Option<ApImage>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(untagged)]
+pub enum ApTag {
+    Mention(ApMention),
+    Emoji(ApEmoji),
+    HashTag(ApHashtag),
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub enum ApAttachmentType {
+    PropertyValue,
+    Document,
+    IdentityProof,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ApAttachment {
+    #[serde(rename = "type")]
+    pub kind: ApAttachmentType,
+    pub name: Option<String>,
+    pub value: Option<String>,
+    pub media_type: Option<String>,
+    pub url: Option<String>,
+    pub blurhash: Option<String>,
+    pub width: Option<i32>,
+    pub height: Option<i32>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(untagged)]
+pub enum ApContext {
+    Plain(String),
+    Complex(Vec<Value>),
+}
+
+impl Default for ApContext {
+    fn default() -> Self {
+        ApContext::Plain("https://www.w3.org/ns/activitystreams".to_string())
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ApNote {
-    #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "@context")]
-    context: Option<String>,
-    #[serde(rename = "type")]
-    kind: String,
-    published: Option<String>,
-    url: Option<ApFlexible>,
-    to: Vec<String>,
-    cc: Option<Vec<String>>,
-    tag: Vec<ApTag>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context: Option<ApContext>,
+    pub tag: Option<Vec<ApTag>>,
     pub attributed_to: String,
-    content: String,
-    in_reply_to: Option<String>,
-    replies: Option<ApFlexible>,
+    pub id: Option<String>,
+    #[serde(rename = "type")]
+    pub kind: ApObjectType,
+    pub to: Vec<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub published: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cc: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub replies: Option<ApFlexible>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub attachment: Option<Vec<ApAttachment>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub in_reply_to: Option<String>,
+    pub content: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sensitive: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub atom_uri: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub in_reply_to_atom_uri: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub conversation: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content_map: Option<Value>,
 }
 
 impl From<SendParams> for ApNote {
     fn from(params: SendParams) -> Self {
-        let tag = params.recipients.iter().map(|(x, y)| ApTag { kind: "Mention".to_string(), name: x.to_string(), href: y.to_string()}).collect::<Vec<ApTag>>();
+        let tag = Option::from(params.recipients.iter().map(|(x, y)| ApTag::Mention ( ApMention { kind: ApTagType::Mention, name: x.to_string(), href: y.to_string()})).collect::<Vec<ApTag>>());
 
         let mut recipients: Vec<String> = params.recipients.into_values().collect();
         recipients.extend(params.recipient_ids);
@@ -53,11 +156,12 @@ impl From<SendParams> for ApNote {
         }
         
         ApNote {
-            context: Option::from("https://www.w3.org/ns/activitystreams".to_string()),
-            kind: params.kind,
+            context: Option::from(ApContext::default()),
+            kind: ApObjectType::from_str(&params.kind).unwrap(),
             to: recipients,
             tag,
             content: params.content,
+            in_reply_to: params.in_reply_to,
             ..Default::default()
         }
     }
@@ -74,6 +178,7 @@ pub struct SendParams {
     recipient_ids: Vec<String>,
     content: String,
     kind: String,
+    in_reply_to: Option<String>,
 }
 
 #[wasm_bindgen]
@@ -109,18 +214,14 @@ impl SendParams {
     pub fn get_content(&self) -> String {
         self.content.clone()
     }
+
+    pub fn set_in_reply_to(&mut self, in_reply_to: String) -> Self {
+        self.in_reply_to = Some(in_reply_to);
+        self.clone()
+    }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
-#[serde(untagged)]
-pub enum ApContext {
-    Plain(String),
-    Complex(Vec<Value>),
-    #[default]
-    Unknown,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, EnumString, Default)]
 pub enum ApObjectType {
     Article,
     Audio,
@@ -137,6 +238,8 @@ pub enum ApObjectType {
     EncryptedSession,
     IdentityKey,
     SessionKey,
+    #[default]
+    Unknown
 }
 
 impl fmt::Display for ApObjectType {
