@@ -142,6 +142,10 @@ pub struct ApNote {
     pub conversation: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content_map: Option<Value>,
+
+    // These are ephemeral attributes to facilitate client operations
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ephemeral_announce: Option<String>,
 }
 
 impl From<SendParams> for ApNote {
