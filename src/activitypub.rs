@@ -3,9 +3,9 @@ use std::{collections::HashMap, fmt::{self, Debug}, str::FromStr};
 use serde::{Serialize, Deserialize};
 use serde_json::Value;
 use wasm_bindgen::prelude::wasm_bindgen;
-use strum_macros::EnumString;
+use strum_macros::{EnumString, Display};
 
-use crate::{get_webfinger, KexInitParams, authenticated, EnigmatickState, Profile, send_post, send_updated_olm_sessions, ENIGMATICK_STATE};
+use crate::{get_webfinger, KexInitParams, authenticated, EnigmatickState, Profile, send_post, send_updated_olm_sessions, ENIGMATICK_STATE, SendParams, ApNote, ApSession};
 
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -33,9 +33,9 @@ pub struct ApHashtag {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ApMention {
     #[serde(rename = "type")]
-    kind: ApTagType,
-    name: String,
-    href: String,
+    pub kind: ApTagType,
+    pub name: String,
+    pub href: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -105,127 +105,7 @@ impl Default for ApContext {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct ApNote {
-    #[serde(rename = "@context")]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub context: Option<ApContext>,
-    pub tag: Option<Vec<ApTag>>,
-    pub attributed_to: String,
-    pub id: Option<String>,
-    #[serde(rename = "type")]
-    pub kind: ApObjectType,
-    pub to: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub url: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub published: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cc: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub replies: Option<ApFlexible>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub attachment: Option<Vec<ApAttachment>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub in_reply_to: Option<String>,
-    pub content: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub summary: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub sensitive: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub atom_uri: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub in_reply_to_atom_uri: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub conversation: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub content_map: Option<Value>,
-
-    // These are ephemeral attributes to facilitate client operations
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_announce: Option<String>,
-}
-
-impl From<SendParams> for ApNote {
-    fn from(params: SendParams) -> Self {
-        let tag = Option::from(params.recipients.iter().map(|(x, y)| ApTag::Mention ( ApMention { kind: ApTagType::Mention, name: x.to_string(), href: y.to_string()})).collect::<Vec<ApTag>>());
-
-        let mut recipients: Vec<String> = params.recipients.into_values().collect();
-        recipients.extend(params.recipient_ids);
-
-        if recipients.is_empty() {
-            recipients.push("https://www.w3.org/ns/activitystreams#Public".to_string());
-        }
-        
-        ApNote {
-            context: Option::from(ApContext::default()),
-            kind: ApObjectType::from_str(&params.kind).unwrap(),
-            to: recipients,
-            tag,
-            content: params.content,
-            in_reply_to: params.in_reply_to,
-            ..Default::default()
-        }
-    }
-}
-
-#[wasm_bindgen]
-#[derive(Debug, Clone, Default)]
-pub struct SendParams {
-    // @name@example.com -> https://example.com/user/name
-    recipients: HashMap<String, String>,
-
-    // https://server/user/username - used for EncryptedNotes where tags
-    // are undesirable
-    recipient_ids: Vec<String>,
-    content: String,
-    kind: String,
-    in_reply_to: Option<String>,
-}
-
-#[wasm_bindgen]
-impl SendParams {
-    pub fn new() -> SendParams {
-        SendParams::default()
-    }
-
-    pub fn set_kind(&mut self, kind: String) -> Self {
-        self.kind = kind;
-        self.clone()
-    }
-    
-    pub fn add_recipient_id(&mut self, recipient_id: String) -> Self {
-        self.recipient_ids.push(recipient_id);
-        self.clone()
-    }
-    
-    pub async fn add_address(&mut self, address: String) -> Self {
-        self.recipients.insert(address.clone(), get_webfinger(address).await.unwrap_or_default());
-        self.clone()
-    }
-
-    pub fn set_content(&mut self, content: String) -> Self {
-        self.content = content;
-        self.clone()
-    }
-
-    pub fn get_recipients(&self) -> String {
-        serde_json::to_string(&self.recipients).unwrap()
-    }
-
-    pub fn get_content(&self) -> String {
-        self.content.clone()
-    }
-
-    pub fn set_in_reply_to(&mut self, in_reply_to: String) -> Self {
-        self.in_reply_to = Some(in_reply_to);
-        self.clone()
-    }
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, EnumString, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, EnumString, Display, Default)]
 pub enum ApObjectType {
     Article,
     Audio,
@@ -240,16 +120,11 @@ pub enum ApObjectType {
     Tombstone,
     Video,
     EncryptedSession,
+    EncryptedNote,
     IdentityKey,
     SessionKey,
     #[default]
     Unknown
-}
-
-impl fmt::Display for ApObjectType {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        Debug::fmt(self, f)
-    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -377,51 +252,6 @@ pub async fn send_unfollow(address: String) -> bool {
     }).await.is_some()
 }
 
-#[wasm_bindgen]
-pub async fn send_note(params: SendParams) -> bool {
-    authenticated(move |state: EnigmatickState, profile: Profile| async move {
-        let outbox = format!("/user/{}/outbox",
-                             profile.username.clone());
-        
-        let id = format!("{}/user/{}",
-                         state.server_url.unwrap(),
-                         profile.username.clone());
-        let mut note = ApNote::from(params);
-        note.attributed_to = id;
-
-        send_post(outbox,
-                  serde_json::to_string(&note).unwrap(),
-                  "application/activity+json".to_string()).await
-    }).await.is_some()
-}
-
-#[wasm_bindgen]
-pub async fn send_encrypted_note(params: SendParams) -> bool {
-    authenticated(move |state: EnigmatickState, profile: Profile| async move {
-        let outbox = format!("/user/{}/outbox",
-                             profile.username.clone());
-        
-        let id = format!("{}/user/{}",
-                         state.server_url.unwrap(),
-                         profile.username.clone());
-        let mut encrypted_message = ApNote::from(params);
-        encrypted_message.attributed_to = id;
-
-        
-        if send_post(outbox,
-                     serde_json::to_string(&encrypted_message).unwrap(),
-                     "application/activity+json".to_string()).await.is_some() {
-            if send_updated_olm_sessions().await {
-                Option::from("{\"success\":true}".to_string())
-            } else {
-                Option::None
-            }
-        } else {
-            Option::None
-        }
-    }).await.is_some()
-}
-
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub enum ApBasicContentType {
     IdentityKey,
@@ -433,43 +263,4 @@ pub struct ApBasicContent {
     #[serde(rename = "type")]
     pub kind: ApBasicContentType,
     pub content: String,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
-#[serde(untagged)]
-pub enum ApInstrument {
-    Single(Box<ApObject>),
-    Multiple(Vec<ApObject>),
-    #[default]
-    Unknown,
-}
-
-#[derive(Serialize, Deserialize, Default, Debug, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct ApSession {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(rename = "@context")]
-    context: Option<String>,
-    #[serde(rename = "type")]
-    kind: String,
-    id: Option<String>,
-    to: String,
-    pub attributed_to: String,
-    pub instrument: ApInstrument,
-    reference: Option<String>,
-}
-
-impl From<KexInitParams> for ApSession {
-    fn from(params: KexInitParams) -> Self {
-        ApSession {
-            context: Option::from("https://www.w3.org/ns/activitystreams".to_string()),
-            kind: "EncryptedSession".to_string(),
-            to: params.recipient,
-            instrument: ApInstrument::Single(Box::new(ApObject::Basic(ApBasicContent {
-                kind: ApBasicContentType::IdentityKey,
-                content: params.identity_key
-            }))),
-            ..Default::default()
-        }
-    }
 }

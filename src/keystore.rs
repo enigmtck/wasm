@@ -7,7 +7,46 @@ use base64::{encode, decode};
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::wasm_bindgen;
 
-use crate::{authenticated, EnigmatickState, Profile, ApSession, send_post, get_webfinger, ENIGMATICK_STATE};
+use crate::{authenticated, EnigmatickState, Profile, send_post, get_webfinger, ENIGMATICK_STATE, ApObject, ApBasicContent, ApBasicContentType};
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[serde(untagged)]
+pub enum ApInstrument {
+    Single(Box<ApObject>),
+    Multiple(Vec<ApObject>),
+    #[default]
+    Unknown,
+}
+
+#[derive(Serialize, Deserialize, Default, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ApSession {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "@context")]
+    context: Option<String>,
+    #[serde(rename = "type")]
+    kind: String,
+    id: Option<String>,
+    to: String,
+    pub attributed_to: String,
+    pub instrument: ApInstrument,
+    reference: Option<String>,
+}
+
+impl From<KexInitParams> for ApSession {
+    fn from(params: KexInitParams) -> Self {
+        ApSession {
+            context: Option::from("https://www.w3.org/ns/activitystreams".to_string()),
+            kind: "EncryptedSession".to_string(),
+            to: params.recipient,
+            instrument: ApInstrument::Single(Box::new(ApObject::Basic(ApBasicContent {
+                kind: ApBasicContentType::IdentityKey,
+                content: params.identity_key
+            }))),
+            ..Default::default()
+        }
+    }
+}
 
 #[derive(Serialize, Deserialize, Debug, Clone, Default)]
 pub struct KeyStore {
@@ -113,6 +152,15 @@ pub fn get_external_identity_key(ap_id: String) -> Option<String> {
     }
 }
 
+#[wasm_bindgen]
+pub fn get_external_one_time_key(ap_id: String) -> Option<String> {
+    if let Ok(x) = (*ENIGMATICK_STATE).try_lock() {
+        x.get_external_one_time_key(ap_id)
+    } else {
+        Option::None
+    }
+}
+
 #[wasm_bindgen(getter_with_clone)]
 #[derive(Debug, Clone, Default)]
 pub struct KexInitParams {
@@ -126,7 +174,12 @@ impl KexInitParams {
         KexInitParams::default()
     }
 
-    pub async fn set_recipient(&mut self, address: String) -> Self {
+    pub fn set_recipient_id(&mut self, id: String) -> Self {
+        self.recipient = id;
+        self.clone()
+    }
+    
+    pub async fn set_recipient_webfinger(&mut self, address: String) -> Self {
         self.recipient = get_webfinger(address).await.unwrap_or_default();
         self.clone()
     }

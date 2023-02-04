@@ -82,6 +82,14 @@ impl EnigmatickState {
             Option::None
         }
     }
+
+    pub fn get_external_one_time_key(&self, ap_id: String) -> Option<String> {
+        if let Some(keystore) = &self.keystore {
+            keystore.olm_external_one_time_keys.get(&ap_id).cloned()
+        } else {
+            Option::None
+        }
+    }
     
     pub fn set_derived_key(&mut self, key: String) -> Self {
         self.derived_key = Option::from(key);
