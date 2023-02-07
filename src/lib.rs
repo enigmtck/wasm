@@ -20,6 +20,7 @@ pub mod processing_queue;
 pub mod state;
 pub mod timeline;
 pub mod stream;
+pub mod vault;
 
 pub use user::*;
 pub use crypto::*;
@@ -33,6 +34,7 @@ pub use processing_queue::*;
 pub use state::*;
 pub use timeline::*;
 pub use stream::*;
+pub use vault::*;
 
 #[wasm_bindgen]
 extern "C" {
