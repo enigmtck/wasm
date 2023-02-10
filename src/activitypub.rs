@@ -264,3 +264,92 @@ pub struct ApBasicContent {
     pub kind: ApBasicContentType,
     pub content: String,
 }
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ApPublicKey {
+    pub id: String,
+    pub owner: String,
+    pub public_key_pem: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ApCapabilities {
+    accepts_chat_messages: bool,
+}
+
+#[derive(Serialize, PartialEq, Eq, Deserialize, Clone, Debug, Default)]
+pub enum ApActorType {
+    Application,
+    Group,
+    Organization,
+    Person,
+    Service,
+    #[default]
+    Unknown,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ApEndpoint {
+    pub shared_inbox: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ApActor {
+    #[serde(rename = "@context")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context: Option<ApContext>,
+    #[serde(rename = "type")]
+    pub kind: ApActorType,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    pub preferred_username: String,
+    pub inbox: String,
+    pub outbox: String,
+    pub followers: String,
+    pub following: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub liked: Option<String>,
+    pub public_key: ApPublicKey,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub featured: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub featured_tags: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub manually_approves_followers: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub published: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tag: Option<Vec<ApTag>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub attachment: Option<Vec<ApAttachment>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub endpoints: Option<ApEndpoint>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon: Option<ApImage>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub image: Option<ApImage>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub also_known_as: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub discoverable: Option<bool>,
+
+    // perhaps SoapBox/Pleroma-specific
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub capabilities: Option<ApCapabilities>,
+
+    // These are ephemeral attributes to facilitate client operations
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ephemeral_following: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ephemeral_leader_ap_id: Option<String>,
+}

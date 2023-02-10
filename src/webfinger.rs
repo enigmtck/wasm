@@ -2,7 +2,7 @@ use gloo_net::http::Request;
 use serde::{Serialize, Deserialize};
 use wasm_bindgen::prelude::wasm_bindgen;
 
-use crate::{authenticated, EnigmatickState, Profile, log, send_post};
+use crate::{authenticated, EnigmatickState, Profile, log, send_post, ApActor};
 
 #[derive(Serialize, Deserialize)]
 pub struct WebfingerLink {
@@ -38,7 +38,7 @@ pub async fn get_webfinger(address: String) -> Option<String> {
                 let mut ret = Option::<String>::None;
                 
                 for link in t.links {
-                    if link.rel == "self" {
+                    if link.rel == "self" && link.kind == Some("application/activity+json".to_string()) {
                         ret = link.href;
                     }
                 }
@@ -78,4 +78,26 @@ pub async fn get_actor(id: String) -> Option<String> {
                   serde_json::to_string(&params).unwrap(),
                   "application/json".to_string()).await
     }).await 
+}
+
+#[wasm_bindgen]
+pub async fn get_webfinger_from_id(id: String) -> Option<String> {
+    if let Some(actor) = get_actor(id.clone()).await {
+        if let Ok(actor) = serde_json::from_str::<ApActor>(&actor) {
+            let id_re = regex::Regex::new(r#"https://([a-zA-Z0-9\-\.]+?)/.+"#).unwrap();
+            if let Some(captures) = id_re.captures(&id.clone()) {
+                if let Some(username) = captures.get(1) {
+                    Option::from(format!("@{}@{}", actor.preferred_username, username.as_str()))
+                } else {
+                    Option::None
+                }
+            } else {
+                Option::None
+            }
+        } else {
+            Option::None
+        }
+    } else {
+        Option::None
+    }
 }

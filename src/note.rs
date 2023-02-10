@@ -4,7 +4,7 @@ use serde::{Serialize, Deserialize};
 use serde_json::Value;
 use wasm_bindgen::prelude::wasm_bindgen;
 
-use crate::{authenticated, EnigmatickState, Profile, log, send_post, get_webfinger, send_updated_olm_sessions, ApContext, ApTag, ApObjectType, ApFlexible, ApAttachment, ApMention, ApTagType};
+use crate::{authenticated, EnigmatickState, Profile, log, send_post, get_webfinger, send_updated_olm_sessions, ApContext, ApTag, ApObjectType, ApFlexible, ApAttachment, ApMention, ApTagType, get_actor, ApActor, get_webfinger_from_id};
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 #[serde(rename_all = "camelCase")]
@@ -57,13 +57,18 @@ impl From<SendParams> for ApNote {
 
         log("after tag");
         
-        let mut recipients: Vec<String> = params.recipients.into_values().collect();
-        recipients.extend(params.recipient_ids);
+        let mut to: Vec<String> = vec![];
+        let mut cc: Vec<String> = vec![];
 
         log("after recipients");
         
-        if recipients.is_empty() {
-            recipients.push("https://www.w3.org/ns/activitystreams#Public".to_string());
+        if params.is_public {
+            to.push("https://www.w3.org/ns/activitystreams#Public".to_string());
+            cc.extend(params.recipients.into_values().collect::<Vec<String>>());
+            cc.extend(params.recipient_ids);
+        } else {
+            to.extend(params.recipients.into_values().collect::<Vec<String>>());
+            to.extend(params.recipient_ids);
         }
 
         log("after push");
@@ -71,7 +76,8 @@ impl From<SendParams> for ApNote {
         ApNote {
             context: Option::from(ApContext::default()),
             kind: params.kind.parse().unwrap(),
-            to: recipients,
+            to,
+            cc: Option::from(cc),
             tag,
             content: params.content,
             in_reply_to: params.in_reply_to,
@@ -111,7 +117,7 @@ pub async fn get_note(id: String) -> Option<String> {
 }
 
 #[wasm_bindgen]
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, Serialize)]
 pub struct SendParams {
     // @name@example.com -> https://example.com/user/name
     #[wasm_bindgen(skip)]
@@ -129,6 +135,7 @@ pub struct SendParams {
     pub in_reply_to: Option<String>,
     #[wasm_bindgen(skip)]
     pub conversation: Option<String>,
+    pub is_public: bool
 }
 
 #[wasm_bindgen]
@@ -142,11 +149,19 @@ impl SendParams {
         self.clone()
     }
     
-    pub fn add_recipient_id(&mut self, recipient_id: String) -> Self {
-        self.recipient_ids.push(recipient_id);
+    pub async fn add_recipient_id(&mut self, recipient_id: String, tag: bool) -> Self {
+        if tag {
+            if let Some(webfinger) = get_webfinger_from_id(recipient_id.clone()).await {
+                self.recipients.insert(webfinger, recipient_id);
+            }
+        } else {
+            self.recipient_ids.push(recipient_id);
+        }
+        
         self.clone()
     }
-    
+
+    // address: @user@domain.tld
     pub async fn add_address(&mut self, address: String) -> Self {
         self.recipients.insert(address.clone(), get_webfinger(address).await.unwrap_or_default());
         self.clone()
@@ -174,6 +189,10 @@ impl SendParams {
         self.conversation = Some(conversation);
         self.clone()
     }
+
+    pub fn export(&self) -> String {
+        serde_json::to_string(&self.clone()).unwrap()
+    }
 }
 
 #[wasm_bindgen]
@@ -188,9 +207,11 @@ pub async fn send_note(params: SendParams) -> bool {
         let mut note = ApNote::from(params);
         note.attributed_to = id;
 
+        log(&format!("NOTE\n{note:#?}"));
         send_post(outbox,
                   serde_json::to_string(&note).unwrap(),
                   "application/activity+json".to_string()).await
+        //Some("".to_string())
     }).await.is_some()
 }
 
