@@ -7,7 +7,7 @@ use rsa::pkcs8::{EncodePublicKey, LineEnding, EncodePrivateKey};
 use serde::{Serialize, Deserialize};
 use wasm_bindgen::prelude::wasm_bindgen;
 
-use crate::{authenticated, EnigmatickState, upload_file, KeyStore, log, ENIGMATICK_STATE, get_key_pair, send_post};
+use crate::{authenticated, EnigmatickState, upload_file, KeyStore, log, ENIGMATICK_STATE, get_key_pair, send_post, encrypt};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct NewUser {
@@ -31,7 +31,13 @@ pub struct Profile {
     pub public_key: String,
     #[wasm_bindgen(skip)]
     pub keystore: KeyStore,
-    pub client_public_key: String,
+    pub client_public_key: Option<String>,
+    pub avatar_filename: String,
+    pub banner_filename: Option<String>,
+    pub salt: Option<String>,
+    pub client_private_key: Option<String>,
+    pub olm_pickled_account: Option<String>,
+    pub olm_identity_key: Option<String>,
 }
 
 #[wasm_bindgen]
@@ -67,49 +73,51 @@ pub async fn authenticate(username: String,
                     let user: Profile = user.clone().unwrap();
                     x.set_profile(user.clone());
                     log("after profile");
-                    x.keystore = Option::from(user.keystore.clone());
+                    //x.keystore = Option::from(user.keystore.clone());
                     log("after keystore");
-                    let salt = kdf::Salt::from_slice(&decode(user.keystore.salt).unwrap()).unwrap();
+                    if let (Some(salt), Some(client_private_key), Some(pickled_account)) = (user.salt, user.client_private_key, user.olm_pickled_account) {
+                        let salt = kdf::Salt::from_slice(&decode(salt).unwrap()).unwrap();
 
-                    if let Ok(derived_key) = kdf::derive_key(&passphrase, &salt, 3, 1<<4, 32) {
-                        log("in derive");
-                        let encoded_derived_key = encode(derived_key.unprotected_as_bytes());
-                        x.set_derived_key(encoded_derived_key);
+                        if let Ok(derived_key) = kdf::derive_key(&passphrase, &salt, 3, 1<<4, 32) {
+                            log("in derive");
+                            let encoded_derived_key = encode(derived_key.unprotected_as_bytes());
+                            x.set_derived_key(encoded_derived_key);
 
-                        if let Ok(decrypted_client_key_pem) =
-                            aead::open(&derived_key,
-                                       &decode(user.keystore.client_private_key)
-                                       .unwrap())
-                        {
-                            log("in decrypted pem");
-                            x.set_client_private_key_pem(
-                                String::from_utf8(decrypted_client_key_pem).unwrap()
-                            );
-                        }
+                            if let Ok(decrypted_client_key_pem) =
+                                aead::open(&derived_key,
+                                           &decode(client_private_key)
+                                           .unwrap())
+                            {
+                                log("in decrypted pem");
+                                x.set_client_private_key_pem(
+                                    String::from_utf8(decrypted_client_key_pem).unwrap()
+                                );
+                            }
 
-                        if let Ok(decrypted_olm_pickled_account) =
-                            aead::open(&derived_key,
-                                       &decode(user.keystore.olm_pickled_account)
-                                       .unwrap())
-                        {
-                            log("in decrypted pickle");
-                            x.set_olm_pickled_account(String::from_utf8(decrypted_olm_pickled_account)
-                                                      .unwrap());
-                        }
+                            if let Ok(decrypted_olm_pickled_account) =
+                                aead::open(&derived_key,
+                                           &decode(pickled_account)
+                                           .unwrap())
+                            {
+                                log("in decrypted pickle");
+                                x.set_olm_pickled_account(String::from_utf8(decrypted_olm_pickled_account)
+                                                          .unwrap());
+                            }
 
-                        if let Ok(decrypted_olm_sessions) =
-                            aead::open(&derived_key,
-                                       &decode(user.keystore.olm_sessions)
-                                       .unwrap())
-                        {
-                            log("in decrypted olm_sessions");
-                            match String::from_utf8(decrypted_olm_sessions) {
-                                Ok(y) => {
-                                    log(&format!("olm_sessions: {y:#?}"));
-                                    x.set_olm_sessions(y);
-                                },
-                                Err(e) => log(&format!("olm_sessions error: {e:#?}"))
-                            }           
+                            // if let Ok(decrypted_olm_sessions) =
+                            //     aead::open(&derived_key,
+                            //                &decode(user.keystore.olm_sessions)
+                            //                .unwrap())
+                            // {
+                            //     log("in decrypted olm_sessions");
+                            //     match String::from_utf8(decrypted_olm_sessions) {
+                            //         Ok(y) => {
+                            //             log(&format!("olm_sessions: {y:#?}"));
+                            //             x.set_olm_sessions(y);
+                            //         },
+                            //         Err(e) => log(&format!("olm_sessions error: {e:#?}"))
+                            //     }           
+                            // }
                         }
                     }
                 };
@@ -200,9 +208,9 @@ pub async fn create_user(username: String,
                                 
                                 if let Ok(mut x) = state.try_lock() {
                                     let user: Profile = user.clone().unwrap();
-                                    x.set_profile(user.clone());
+                                    x.set_profile(user);
                                     x.set_derived_key(encoded_derived_key);
-                                    x.keystore = Option::from(user.keystore);
+                                    // x.keystore = Option::from(user.keystore);
                                     x.set_client_private_key_pem(encoded_client_private_key);
                                 };
                                 //let user = y.text().await.ok();
@@ -281,15 +289,66 @@ pub async fn update_summary(summary: String) -> Option<String> {
         }
 
         let data = SummaryUpdate { content: summary };
-
-        log("{data\ndata:#?}");
         
         let url = format!("/api/user/{}/update/summary",
                           profile.username);
 
-        log("url\n{url:#?}");
         let data = serde_json::to_string(&data).unwrap();
-        log("data\n{data:#?}");
         send_post(url, data, "application/json".to_string()).await
+    }).await
+}
+
+#[wasm_bindgen(getter_with_clone)]
+#[derive(Serialize, Deserialize, Default, Clone)]
+pub struct OtkUpdateParams {
+    keys: HashMap<String, String>,
+    account: String,
+    mutation_of: String,
+    account_hash: String,
+}
+
+#[wasm_bindgen]
+impl OtkUpdateParams {
+    pub fn new() -> Self {
+        OtkUpdateParams::default()
+    }
+
+    pub fn set_account(&mut self, account: String) -> Self {
+        self.account = encrypt(account).expect("ACCOUNT ENCRYPTION FAILED");
+        
+        self.clone()
+    }
+
+    pub fn set_mutation(&mut self, hash: String) -> Self {
+        self.mutation_of = hash;
+        
+        self.clone()
+    }
+
+    pub fn set_account_hash(&mut self, hash: String) -> Self {
+        self.account_hash = hash;
+        
+        self.clone()
+    }
+    
+    pub fn set_keys(&mut self, key_map: String) -> Self {
+        if let Ok(m) = serde_json::from_str::<HashMap<String, String>>(&key_map) {
+            self.keys = m;
+        }
+
+        self.clone()
+    }
+}
+
+#[wasm_bindgen]
+pub async fn add_one_time_keys(params: OtkUpdateParams) -> Option<String> {
+    authenticated(move |_: EnigmatickState, profile: Profile| async move {
+        let username = profile.username;
+        let url = format!("/api/user/{username}/otk");
+
+        let data = serde_json::to_string(&params).unwrap();
+        log(&format!("{data:#?}"));
+        send_post(url, data, "application/json".to_string()).await
+        //Option::None
     }).await
 }

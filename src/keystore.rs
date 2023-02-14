@@ -86,29 +86,29 @@ pub struct KeyStore {
 
 pub async fn send_updated_identity_cache() -> bool {
     authenticated(move |state: EnigmatickState, profile: Profile| async move {
-        if let Some(keystore) = state.keystore {
-            let url = format!("/api/user/{}/update_identity_cache",
-                              profile.username);
+        // if let Some(keystore) = state.keystore {
+        //     let url = format!("/api/user/{}/update_identity_cache",
+        //                       profile.username);
 
-            let data = serde_json::to_string(&keystore).unwrap();
-            send_post(url, data, "application/json".to_string()).await
-        } else {
+        //     let data = serde_json::to_string(&keystore).unwrap();
+        //     send_post(url, data, "application/json".to_string()).await
+        // } else {
             Option::None
-        }
+        // }
     }).await.is_some()
 }
 
 pub async fn send_updated_olm_sessions() -> bool {
     authenticated(move |state: EnigmatickState, profile: Profile| async move {
-        if let Some(keystore) = state.keystore {
-            let url = format!("/api/user/{}/update_olm_sessions",
-                              profile.username);
+        // if let Some(keystore) = state.keystore {
+        //     let url = format!("/api/user/{}/update_olm_sessions",
+        //                       profile.username);
 
-            let data = serde_json::to_string(&keystore).unwrap();
-            send_post(url, data, "application/json".to_string()).await
-        } else {
+        //     let data = serde_json::to_string(&keystore).unwrap();
+        //     send_post(url, data, "application/json".to_string()).await
+        // } else {
             Option::None
-        }
+        // }
     }).await.is_some()
 }
 
@@ -119,9 +119,9 @@ pub fn update_keystore_olm_sessions(olm_sessions: String) -> bool {
             let derived_key = SecretKey::from_slice(&decode(derived_key).unwrap()).unwrap();
             
             if let Ok(ciphertext) = aead::seal(&derived_key, olm_sessions.as_bytes()) {
-                let mut keystore = x.keystore.clone().unwrap();
-                keystore.olm_sessions = encode(ciphertext);
-                x.keystore = Option::from(keystore);
+                // let mut keystore = x.keystore.clone().unwrap();
+                // keystore.olm_sessions = encode(ciphertext);
+                // x.keystore = Option::from(keystore);
                 true
             } else {
                 false

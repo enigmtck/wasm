@@ -4,6 +4,7 @@ use gloo_net::http::Request;
 use futures::Future;
 use wasm_bindgen::prelude::*;
 use lazy_static::lazy_static;
+use orion::{aead, kdf, aead::SecretKey};
 
 use std::sync::{Arc, Mutex};
 use std::fmt::{self, Debug};
@@ -54,6 +55,33 @@ lazy_static! {
     pub static ref ENIGMATICK_STATE: Arc<Mutex<EnigmatickState>> = {
         Arc::new(Mutex::new(EnigmatickState::new()))
     };
+}
+
+pub fn encrypt(data: String) -> Option<String> {
+    let state = &*ENIGMATICK_STATE;
+    let state = { if let Ok(x) = state.try_lock() { Option::from(x.clone()) } else { Option::None }};
+
+    if let Some(state) = state {
+        if let Some(derived_key) = state.derived_key {
+            if let Ok(derived_key) = base64::decode(derived_key) {
+                if let Ok(derived_key) = SecretKey::from_slice(&derived_key) {
+                    if let Ok(encrypted) = aead::seal(&derived_key, data.as_bytes()) {
+                        base64::encode(encrypted).into()
+                    } else {
+                        Option::None
+                    }
+                } else {
+                    Option::None
+                }
+            } else {
+                Option::None
+            }
+        } else {
+            Option::None
+        }
+    } else {
+        Option::None
+    }
 }
 
 pub async fn authenticated<F, Fut>(f: F) -> Option<String> where F: FnOnce(EnigmatickState, Profile) -> Fut, Fut: Future<Output = Option<String>> {

@@ -1,6 +1,8 @@
+use orion::hash::digest;
 use rsa::signature::{RandomizedSigner, Signature};
 use rsa::{pkcs1v15::SigningKey, pkcs8::DecodePrivateKey, RsaPrivateKey, RsaPublicKey};
 use sha2::{Digest, Sha256};
+use wasm_bindgen::prelude::wasm_bindgen;
 
 use crate::{date_now, log, Method, ENIGMATICK_STATE};
 
@@ -18,6 +20,15 @@ pub fn get_key_pair() -> KeyPair {
     KeyPair {
         private_key,
         public_key,
+    }
+}
+
+#[wasm_bindgen]
+pub fn get_hash(data: String) -> Option<String> {
+    if let Ok(hash) = digest(data.as_bytes()) {
+        base64::encode(hash).into()
+    } else {
+        Option::None
     }
 }
 

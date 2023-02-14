@@ -28,8 +28,8 @@ pub struct EnigmatickState {
     // this is the un-stringified version of the keystore from the profile
     // it includes the encrypted data stored on the server accessible via
     // object getters
-    #[wasm_bindgen(skip)]
-    pub keystore: Option<KeyStore>,
+    // #[wasm_bindgen(skip)]
+    // pub keystore: Option<KeyStore>,
 
     // this is the decrypted, PEM encoded client key from the keystore
     pub client_private_key_pem: Option<String>,
@@ -67,28 +67,28 @@ impl EnigmatickState {
     }
     
     pub fn cache_external_identity_key(&mut self, ap_id: String, identity_key: String) -> Self {
-        if let Some(keystore) = &self.keystore {
-            let mut keystore = keystore.clone();
-            keystore.olm_external_identity_keys.insert(ap_id, identity_key);
-            self.keystore = Option::from(keystore);
-        }
+        // if let Some(keystore) = &self.keystore {
+        //     let mut keystore = keystore.clone();
+        //     keystore.olm_external_identity_keys.insert(ap_id, identity_key);
+        //     self.keystore = Option::from(keystore);
+        // }
         self.clone()
     }
 
     pub fn get_external_identity_key(&self, ap_id: String) -> Option<String> {
-        if let Some(keystore) = &self.keystore {
-            keystore.olm_external_identity_keys.get(&ap_id).cloned()
-        } else {
+        // if let Some(keystore) = &self.keystore {
+        //     keystore.olm_external_identity_keys.get(&ap_id).cloned()
+        // } else {
             Option::None
-        }
+        // }
     }
 
     pub fn get_external_one_time_key(&self, ap_id: String) -> Option<String> {
-        if let Some(keystore) = &self.keystore {
-            keystore.olm_external_one_time_keys.get(&ap_id).cloned()
-        } else {
+        // if let Some(keystore) = &self.keystore {
+        //     keystore.olm_external_one_time_keys.get(&ap_id).cloned()
+        // } else {
             Option::None
-        }
+        // }
     }
     
     pub fn set_derived_key(&mut self, key: String) -> Self {
@@ -109,10 +109,10 @@ impl EnigmatickState {
         self.profile.clone()
     }
 
-    fn set_keystore(&mut self, keystore: KeyStore) -> Self {
-        self.keystore = Option::from(keystore);
-        self.clone()
-    }
+    // fn set_keystore(&mut self, keystore: KeyStore) -> Self {
+    //     self.keystore = Option::from(keystore);
+    //     self.clone()
+    // }
 
     // fn get_keystore(&self) -> Option<KeyStore> {
     //     self.keystore.clone()
@@ -184,7 +184,8 @@ pub fn import_state(data: String) {
         x.authenticated = imported_state.authenticated;
         x.set_client_private_key_pem(imported_state.client_private_key_pem.unwrap());
         x.set_profile(imported_state.profile.unwrap());
-        x.set_keystore(imported_state.keystore.unwrap());
+        x.set_olm_pickled_account(imported_state.olm_pickled_account.unwrap());
+        // x.set_keystore(imported_state.keystore.unwrap());
     };
 
     log("exiting import_state");

@@ -76,6 +76,7 @@ pub enum ApAttachmentType {
     PropertyValue,
     Document,
     IdentityProof,
+    Link,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

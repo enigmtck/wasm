@@ -82,22 +82,31 @@ pub async fn get_actor(id: String) -> Option<String> {
 
 #[wasm_bindgen]
 pub async fn get_webfinger_from_id(id: String) -> Option<String> {
+    log(&format!("ID: {id}"));
     if let Some(actor) = get_actor(id.clone()).await {
-        if let Ok(actor) = serde_json::from_str::<ApActor>(&actor) {
-            let id_re = regex::Regex::new(r#"https://([a-zA-Z0-9\-\.]+?)/.+"#).unwrap();
-            if let Some(captures) = id_re.captures(&id.clone()) {
-                if let Some(username) = captures.get(1) {
-                    Option::from(format!("@{}@{}", actor.preferred_username, username.as_str()))
+        log(&format!("ACTOR\n{actor:#?}"));
+        match serde_json::from_str::<ApActor>(&actor) {
+            Ok(actor) => {
+                let id_re = regex::Regex::new(r#"https://([a-zA-Z0-9\-\.]+?)/.+"#).unwrap();
+                if let Some(captures) = id_re.captures(&id.clone()) {
+                    if let Some(server_name) = captures.get(1) {
+                        Option::from(format!("@{}@{}", actor.preferred_username, server_name.as_str()))
+                    } else {
+                        log("INSUFFICIENT REGEX CAPTURES");
+                        Option::None
+                    }
                 } else {
+                    log("FAILED TO MATCH PATTERN");
                     Option::None
                 }
-            } else {
+            }   
+            Err(e) => {
+                log(&format!("FAILED TO DESERIALIZE ACTOR\n{e:#?}"));
                 Option::None
             }
-        } else {
-            Option::None
         }
     } else {
+        log("FAILED TO RETRIEVE ACTOR");
         Option::None
     }
 }
