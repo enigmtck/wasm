@@ -1,78 +1,53 @@
-use gloo_net::http::Request;
+use serde::{Serialize, Deserialize};
 use wasm_bindgen::prelude::wasm_bindgen;
 
-use crate::{log, authenticated, EnigmatickState, Profile, SignParams, sign, Method, ApObject, ApInstrument, ApBasicContentType, ENIGMATICK_STATE, send_updated_identity_cache};
+use crate::{log, authenticated, EnigmatickState, Profile, ApObject, send_post, send_get};
 
+#[wasm_bindgen]
+#[derive(Serialize, Deserialize, Default, Clone, Debug)]
+pub enum QueueTask {
+    Resolve,
+    #[default]
+    Unknown,
+}
+
+#[wasm_bindgen]
+#[derive(Serialize, Deserialize, Default, Clone, Debug)]
+pub struct QueueAction {
+    id: String,
+    action: QueueTask,
+}
+
+#[wasm_bindgen]
+pub async fn resolve_processed_item(id: String) -> Option<String> {
+    log("IN resolve_processed_item");
+
+    authenticated(move |_state: EnigmatickState, profile: Profile| async move {
+        let url = format!("/api/user/{}/queue",
+                          profile.username.clone());
+        
+        let data = QueueAction {
+            id,
+            action: QueueTask::Resolve
+        };
+        
+        send_post(url,
+                  serde_json::to_string(&data).unwrap(),
+                  "application/json".to_string()).await
+    }).await
+}
 
 #[wasm_bindgen]
 pub async fn get_processing_queue() -> Option<String> {
-    log("in get processing_queue");
+    log("IN get processing_queue");
     
-    authenticated(move |state: EnigmatickState, profile: Profile| async move {
-        let inbox = format!("/api/user/{}/processing_queue",
+    authenticated(move |_state: EnigmatickState, profile: Profile| async move {
+        let url = format!("/api/user/{}/queue",
                             profile.username.clone());
         
-        let signature = sign(SignParams {
-            host: state.server_name.unwrap(),
-            request_target: inbox.clone(),
-            body: Option::None,
-            data: Option::None,
-            method: Method::Get
-        });
-
-        if let Ok(resp) = Request::get(&inbox)
-            .header("Enigmatick-Date", &signature.date)
-            .header("Signature", &signature.signature)
-            .header("Content-Type", "application/activity+json")
-            .send().await
-        {
+        if let Some(data) = send_get(url, "application/activity+json".to_string()).await {
             //log(&format!("queue response\n{:#?}", resp.text().await));
-            if let Ok(ApObject::Collection(object)) = resp.json().await {
-                if let Some(items) = object.items.clone() {
-                    for o in items {
-                        if let ApObject::Session(session) = o {
-                            match session.instrument {
-                                ApInstrument::Multiple(x) => {
-                                    for i in x {
-                                        if let ApObject::Basic(y) = i {
-                                            if y.kind == ApBasicContentType::IdentityKey {
-                                                if let Ok(mut x) =
-                                                    (*ENIGMATICK_STATE).try_lock()
-                                                {
-                                                    log(&format!("caching: {:#?}",
-                                                                 session.attributed_to
-                                                                 .clone()));
-                                                    x.cache_external_identity_key(
-                                                        session.attributed_to.clone(),
-                                                        y.content);
-                                                }
-                                            }
-                                        }
-                                    }
-                                },
-                                ApInstrument::Single(x) => {
-                                    if let ApObject::Basic(y) = *x {
-                                        if y.kind == ApBasicContentType::IdentityKey {
-                                            if let Ok(mut x) =
-                                                (*ENIGMATICK_STATE).try_lock()
-                                            {
-                                                log(&format!("caching: {:#?}",
-                                                             session.attributed_to
-                                                             .clone()));
-                                                x.cache_external_identity_key(
-                                                    session.attributed_to.clone(),
-                                                    y.content);
-                                            }
-                                        }
-                                    }
-                                },
-                                _ => {
-                                }
-                            }
-                        }
-                    }
-                    send_updated_identity_cache().await;
-                }
+            if let Ok(ApObject::Collection(object)) = serde_json::from_str(&data) {
                 Option::from(serde_json::to_string(&object).unwrap())
             } else {
                 Option::None

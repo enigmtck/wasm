@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::wasm_bindgen;
 
-use crate::{ENIGMATICK_STATE, KeyStore, Profile, log};
+use crate::{ENIGMATICK_STATE, Profile};
 
 #[wasm_bindgen(getter_with_clone)]
 #[derive(Default, Clone, Serialize, Deserialize, Debug)]
@@ -65,32 +65,7 @@ impl EnigmatickState {
     pub fn get_server_url(&self) -> Option<String> {
         self.server_url.clone()
     }
-    
-    pub fn cache_external_identity_key(&mut self, ap_id: String, identity_key: String) -> Self {
-        // if let Some(keystore) = &self.keystore {
-        //     let mut keystore = keystore.clone();
-        //     keystore.olm_external_identity_keys.insert(ap_id, identity_key);
-        //     self.keystore = Option::from(keystore);
-        // }
-        self.clone()
-    }
-
-    pub fn get_external_identity_key(&self, ap_id: String) -> Option<String> {
-        // if let Some(keystore) = &self.keystore {
-        //     keystore.olm_external_identity_keys.get(&ap_id).cloned()
-        // } else {
-            Option::None
-        // }
-    }
-
-    pub fn get_external_one_time_key(&self, ap_id: String) -> Option<String> {
-        // if let Some(keystore) = &self.keystore {
-        //     keystore.olm_external_one_time_keys.get(&ap_id).cloned()
-        // } else {
-            Option::None
-        // }
-    }
-    
+        
     pub fn set_derived_key(&mut self, key: String) -> Self {
         self.derived_key = Option::from(key);
         self.clone()
@@ -108,15 +83,6 @@ impl EnigmatickState {
     pub fn get_profile(&self) -> Option<Profile> {
         self.profile.clone()
     }
-
-    // fn set_keystore(&mut self, keystore: KeyStore) -> Self {
-    //     self.keystore = Option::from(keystore);
-    //     self.clone()
-    // }
-
-    // fn get_keystore(&self) -> Option<KeyStore> {
-    //     self.keystore.clone()
-    // }
 
     pub fn set_client_private_key_pem(&mut self, pem: String) -> Self {
         self.client_private_key_pem = Option::from(pem);
@@ -174,7 +140,6 @@ impl EnigmatickState {
 
 #[wasm_bindgen]
 pub fn import_state(data: String) {
-    log("entering wasm import_state");
     let imported_state: EnigmatickState = serde_json::from_str(&data).unwrap();
 
     let state = &*ENIGMATICK_STATE.clone();
@@ -188,19 +153,15 @@ pub fn import_state(data: String) {
         // x.set_keystore(imported_state.keystore.unwrap());
     };
 
-    log("exiting import_state");
 }
 
 #[wasm_bindgen]
 pub async fn get_state() -> EnigmatickState {
-    log("entering wasm get_state");
     let state = &*ENIGMATICK_STATE;
 
     if let Ok(x) = state.lock() {
-        log("exiting get_state lock");
         x.clone()
     } else {
-        log("exiting get_state no lock");
         EnigmatickState::default()
     }
 }

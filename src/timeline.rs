@@ -1,8 +1,7 @@
-use base64::encode;
 use gloo_net::http::Request;
 use wasm_bindgen::prelude::wasm_bindgen;
 
-use crate::{authenticated, EnigmatickState, Profile, SignParams, Method, ApObject, log};
+use crate::{authenticated, EnigmatickState, Profile, SignParams, Method, ApObject};
 
 #[wasm_bindgen]
 pub async fn get_timeline(offset: i32, limit: i32) -> Option<String> {

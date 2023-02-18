@@ -1,12 +1,10 @@
-use std::{collections::HashMap, fmt::{self, Debug}, str::FromStr};
+use std::fmt::{self, Debug};
 
 use serde::{Serialize, Deserialize};
 use serde_json::Value;
 use wasm_bindgen::prelude::wasm_bindgen;
-use strum_macros::{EnumString, Display};
 
-use crate::{get_webfinger, KexInitParams, authenticated, EnigmatickState, Profile, send_post, send_updated_olm_sessions, ENIGMATICK_STATE, SendParams, ApNote, ApSession};
-
+use crate::{authenticated, EnigmatickState, Profile, send_post, ENIGMATICK_STATE, ApNote, ApSession, ApInstrument};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(untagged)]
@@ -16,16 +14,24 @@ pub enum ApFlexible {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
-pub enum ApTagType {
+pub enum ApMentionType {
     Mention,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub enum ApHashtagType {
     Hashtag,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub enum ApEmojiType {
     Emoji,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ApHashtag {
     #[serde(rename = "type")]
-    kind: ApTagType,
+    kind: ApHashtagType,
     name: String,
     href: String,
 }
@@ -33,9 +39,10 @@ pub struct ApHashtag {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ApMention {
     #[serde(rename = "type")]
-    pub kind: ApTagType,
+    pub kind: ApMentionType,
     pub name: String,
-    pub href: String,
+    pub href: Option<String>,
+    pub value: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -56,7 +63,7 @@ pub struct ApImage {
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct ApEmoji {
     #[serde(rename = "type")]
-    kind: ApTagType,
+    kind: ApEmojiType,
     id: Option<String>,
     name: Option<String>,
     updated: Option<String>,
@@ -71,21 +78,26 @@ pub enum ApTag {
     HashTag(ApHashtag),
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub enum ApAttachmentType {
+    OlmSession,
     PropertyValue,
     Document,
     IdentityProof,
     Link,
+    #[default]
+    Unknown,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ApAttachment {
     #[serde(rename = "type")]
     pub kind: ApAttachmentType,
     pub name: Option<String>,
     pub value: Option<String>,
+    pub hash: Option<String>,
+    pub mutation_of: Option<String>,
     pub media_type: Option<String>,
     pub url: Option<String>,
     pub blurhash: Option<String>,
@@ -106,40 +118,18 @@ impl Default for ApContext {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, EnumString, Display, Default)]
-pub enum ApObjectType {
-    Article,
-    Audio,
-    Document,
-    Event,
-    Image,
-    Note,
-    Page,
-    Place,
-    Profile,
-    Relationship,
-    Tombstone,
-    Video,
-    EncryptedSession,
-    EncryptedNote,
-    IdentityKey,
-    SessionKey,
-    #[default]
-    Unknown
-}
-
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
-pub enum ApBaseObjectType {
-    Object,
-    Link,
-    Activity,
-    IntransitiveActivity,
+pub enum ApCollectionType {
     Collection,
     OrderedCollection,
-    CollectionPage,
-    OrderedCollectionPage,
     #[default]
     Unknown,
+}
+
+impl fmt::Display for ApCollectionType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        Debug::fmt(self, f)
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -148,7 +138,7 @@ pub struct ApCollection {
     #[serde(rename = "@context")]
     pub context: Option<ApContext>,
     #[serde(rename = "type")]
-    pub kind: ApBaseObjectType,
+    pub kind: ApCollectionType,
     pub id: Option<String>,
     pub total_items: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -171,8 +161,8 @@ pub enum ApObject {
     Plain(String),
     Collection(ApCollection),
     Session(ApSession),
+    Instrument(ApInstrument),
     Note(ApNote),
-    Basic(ApBasicContent),
     #[default]
     Unknown,
 }
@@ -251,19 +241,6 @@ pub async fn send_unfollow(address: String) -> bool {
                   serde_json::to_string(&follow).unwrap(),
                   "application/activity+json".to_string()).await
     }).await.is_some()
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
-pub enum ApBasicContentType {
-    IdentityKey,
-    SessionKey,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-pub struct ApBasicContent {
-    #[serde(rename = "type")]
-    pub kind: ApBasicContentType,
-    pub content: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]

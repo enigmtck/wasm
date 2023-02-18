@@ -5,8 +5,6 @@ use crate::{log, authenticated, EnigmatickState, Profile, SignParams, sign, Meth
 
 #[wasm_bindgen]
 pub async fn get_inbox() -> Option<String> {
-    log("in get inbox");
-
     authenticated(move |state: EnigmatickState, profile: Profile| async move {
         let inbox = format!("/user/{}/inbox",
                             profile.username.clone());

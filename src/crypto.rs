@@ -4,7 +4,7 @@ use rsa::{pkcs1v15::SigningKey, pkcs8::DecodePrivateKey, RsaPrivateKey, RsaPubli
 use sha2::{Digest, Sha256};
 use wasm_bindgen::prelude::wasm_bindgen;
 
-use crate::{date_now, log, Method, ENIGMATICK_STATE};
+use crate::{date_now, Method, ENIGMATICK_STATE};
 
 pub struct KeyPair {
     pub private_key: RsaPrivateKey,
@@ -54,8 +54,6 @@ pub fn sign(params: SignParams) -> SignResponse {
     // date: Tue, 20 Dec 2022 22:02:48 GMT
     // digest: sha-256=uus37v4gf3z6ze+jtuyk+8xsT01FhYOi/rOoDfFV1u4=
 
-    log(&format!("in sign\n{params:#?}"));
-
     let digest = {
         if let Some(body) = params.body {
             let mut hasher = Sha256::new();
@@ -103,13 +101,11 @@ pub fn sign(params: SignParams) -> SignResponse {
                         "(request-target): {request_target}\nhost: {host}\ndate: {date}\ndigest: {digest}"
                     );
 
-                    log(&format!("signed string\n{signed_string}"));
                     Option::from(signed_string)
                 } else {
                     let signed_string =
                         format!("(request-target): {request_target}\nhost: {host}\ndate: {date}");
 
-                    log(&format!("signed string\n{signed_string}"));
                     Option::from(signed_string)
                 }
             };

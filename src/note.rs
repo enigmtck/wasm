@@ -1,10 +1,24 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, fmt::{self, Debug}};
 
 use serde::{Serialize, Deserialize};
 use serde_json::Value;
 use wasm_bindgen::prelude::wasm_bindgen;
 
-use crate::{authenticated, EnigmatickState, Profile, log, send_post, get_webfinger, send_updated_olm_sessions, ApContext, ApTag, ApObjectType, ApFlexible, ApAttachment, ApMention, ApTagType, get_actor, ApActor, get_webfinger_from_id};
+use crate::{authenticated, EnigmatickState, Profile, log, send_post, get_webfinger, ApContext, ApTag, ApFlexible, ApAttachment, ApMention, get_webfinger_from_id, encrypt, ApAttachmentType, get_hash, get_state, ApMentionType, resolve_processed_item, ApInstruments, ApInstrument, ApInstrumentType};
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+pub enum ApNoteType {
+    Note,
+    EncryptedNote,
+    #[default]
+    Unknown,
+}
+
+impl fmt::Display for ApNoteType {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        Debug::fmt(self, f)
+    }
+}
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 #[serde(rename_all = "camelCase")]
@@ -16,7 +30,7 @@ pub struct ApNote {
     pub attributed_to: String,
     pub id: Option<String>,
     #[serde(rename = "type")]
-    pub kind: ApObjectType,
+    pub kind: ApNoteType,
     pub to: Vec<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
@@ -43,6 +57,9 @@ pub struct ApNote {
     pub conversation: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content_map: Option<Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub instrument: Option<ApInstruments>,
+
 
     // These are ephemeral attributes to facilitate client operations
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -53,14 +70,14 @@ impl From<SendParams> for ApNote {
     fn from(params: SendParams) -> Self {
         log(&format!("params\n{params:#?}"));
         
-        let tag = Option::from(params.recipients.iter().map(|(x, y)| ApTag::Mention ( ApMention { kind: ApTagType::Mention, name: x.to_string(), href: y.to_string()})).collect::<Vec<ApTag>>());
+        let mut tag = params.recipients.iter().map(|(x, y)| ApTag::Mention ( ApMention { kind: ApMentionType::Mention, name: x.to_string(), href: Some(y.to_string()), value: None})).collect::<Vec<ApTag>>();
 
-        log("after tag");
+        if let Some(idk) = params.identity_key {
+            tag.push(ApTag::Mention (ApMention { kind: ApMentionType::Mention, name: params.attributed_to, href: None, value: Some(idk) }));
+        }
         
         let mut to: Vec<String> = vec![];
         let mut cc: Vec<String> = vec![];
-
-        log("after recipients");
         
         if params.is_public {
             to.push("https://www.w3.org/ns/activitystreams#Public".to_string());
@@ -71,17 +88,28 @@ impl From<SendParams> for ApNote {
             to.extend(params.recipient_ids);
         }
 
-        log("after push");
+        let attachment: Vec<ApAttachment> = vec![];
+        
+        let mut instrument: Option<ApInstruments> = Option::None;
+        if let (Some(session), Some(hash)) = (params.session_data, params.session_hash) {
+            instrument = Some(ApInstruments::Single(ApInstrument {
+                kind: ApInstrumentType::OlmSession,
+                content: session,
+                hash: hash.into(),
+            }))
+        }
         
         ApNote {
             context: Option::from(ApContext::default()),
-            kind: params.kind.parse().unwrap(),
+            kind: { if params.is_encrypted { ApNoteType::EncryptedNote } else { ApNoteType::Note } },
             to,
             cc: Option::from(cc),
-            tag,
+            tag: Option::from(tag),
+            attachment: attachment.into(),
             content: params.content,
             in_reply_to: params.in_reply_to,
             conversation: params.conversation,
+            instrument,
             ..Default::default()
         }
     }
@@ -119,33 +147,60 @@ pub async fn get_note(id: String) -> Option<String> {
 #[wasm_bindgen]
 #[derive(Debug, Clone, Default, Serialize)]
 pub struct SendParams {
+    attributed_to: String,
     // @name@example.com -> https://example.com/user/name
-    #[wasm_bindgen(skip)]
-    pub recipients: HashMap<String, String>,
+    recipients: HashMap<String, String>,
 
     // https://server/user/username - used for EncryptedNotes where tags
     // are undesirable
-    #[wasm_bindgen(skip)]
-    pub recipient_ids: Vec<String>,
-    #[wasm_bindgen(skip)]
-    pub content: String,
-    #[wasm_bindgen(skip)]
-    pub kind: String,
-    #[wasm_bindgen(skip)]
-    pub in_reply_to: Option<String>,
-    #[wasm_bindgen(skip)]
-    pub conversation: Option<String>,
-    pub is_public: bool
+    recipient_ids: Vec<String>,
+    content: String,
+    in_reply_to: Option<String>,
+    conversation: Option<String>,
+
+    // OLM session information
+    session_data: Option<String>,
+    session_hash: Option<String>,
+    mutation_of: Option<String>,
+    
+    identity_key: Option<String>,
+    resolves: Option<String>,
+    is_public: bool,
+    is_encrypted: bool,
 }
 
 #[wasm_bindgen]
 impl SendParams {
-    pub fn new() -> SendParams {
-        SendParams::default()
+    pub async fn new() -> SendParams {
+        let state = get_state().await;
+        if let (Some(profile), Some(server_url)) = (state.profile, state.server_url) {
+            SendParams {
+                attributed_to: format!("{server_url}/user/{}",
+                                       profile.username),
+                ..Default::default()
+            }
+        } else {
+            SendParams::default()
+        }
     }
 
-    pub fn set_kind(&mut self, kind: String) -> Self {
-        self.kind = kind;
+    pub fn resolves(&mut self, queue_id: String) -> Self {
+        self.resolves = Some(queue_id);
+        self.clone()
+    }
+    
+    pub fn set_identity_key(&mut self, identity_key: String) -> Self {
+        self.identity_key = Some(identity_key);
+        self.clone()
+    }
+    
+    pub fn set_encrypted(&mut self) -> Self {
+        self.is_encrypted = true;
+        self.clone()
+    }
+
+    pub fn set_public(&mut self) -> Self {
+        self.is_public = true;
         self.clone()
     }
     
@@ -169,6 +224,17 @@ impl SendParams {
 
     pub fn set_content(&mut self, content: String) -> Self {
         self.content = content;
+        self.clone()
+    }
+    
+    pub fn set_session_data(&mut self, session_data: String) -> Self {
+        self.session_hash = get_hash(session_data.clone());
+        self.session_data = encrypt(session_data);
+        self.clone()
+    }
+
+    pub fn set_mutation_of(&mut self, mutation_of: String) -> Self {
+        self.mutation_of = mutation_of.into();
         self.clone()
     }
 
@@ -218,34 +284,28 @@ pub async fn send_note(params: SendParams) -> bool {
 #[wasm_bindgen]
 pub async fn send_encrypted_note(params: SendParams) -> bool {
     authenticated(move |state: EnigmatickState, profile: Profile| async move {
-        log("in send_encrypted_note");
+        log("IN send_encrypted_note");
         
         let outbox = format!("/user/{}/outbox",
                              profile.username.clone());
-
-        log("after outbox");
         
         let id = format!("{}/user/{}",
                          state.server_url.unwrap(),
                          profile.username.clone());
-
-        log("after id");
         
-        let mut encrypted_message = ApNote::from(params);
+        let mut encrypted_message = ApNote::from(params.clone());
         encrypted_message.attributed_to = id;
-
-        log("after encrypted_message");
         
         if send_post(outbox,
                      serde_json::to_string(&encrypted_message).unwrap(),
                      "application/activity+json".to_string()).await.is_some() {
-            if send_updated_olm_sessions().await {
-                Option::from("{\"success\":true}".to_string())
+            if let Some(resolves) = params.clone().resolves {
+                resolve_processed_item(resolves).await
             } else {
-                Option::None
+                None
             }
         } else {
-            Option::None
+            None
         }
     }).await.is_some()
 }

@@ -7,15 +7,19 @@ use rsa::pkcs8::{EncodePublicKey, LineEnding, EncodePrivateKey};
 use serde::{Serialize, Deserialize};
 use wasm_bindgen::prelude::wasm_bindgen;
 
-use crate::{authenticated, EnigmatickState, upload_file, KeyStore, log, ENIGMATICK_STATE, get_key_pair, send_post, encrypt};
+use crate::{authenticated, EnigmatickState, upload_file, log, ENIGMATICK_STATE, get_key_pair, send_post, encrypt, get_hash};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct NewUser {
     pub username: String,
     pub password: String,
     pub display_name: String,
-    pub client_public_key: String,
-    pub keystore: String,
+    pub client_public_key: Option<String>,
+    pub client_private_key: Option<String>,
+    pub olm_pickled_account: Option<String>,
+    pub olm_pickled_account_hash: Option<String>,
+    pub olm_identity_key: Option<String>,
+    pub salt: Option<String>,
 }
 
 #[wasm_bindgen(getter_with_clone)]
@@ -29,8 +33,6 @@ pub struct Profile {
     #[wasm_bindgen(skip)]
     pub summary: Option<String>,
     pub public_key: String,
-    #[wasm_bindgen(skip)]
-    pub keystore: KeyStore,
     pub client_public_key: Option<String>,
     pub avatar_filename: String,
     pub banner_filename: Option<String>,
@@ -140,7 +142,6 @@ pub async fn create_user(username: String,
                          password: String,
                          passphrase: String,
                          olm_identity_public_key: String,
-                         olm_one_time_keys: String,
                          olm_pickled_account: String
 ) -> Option<Profile> {
     
@@ -153,7 +154,8 @@ pub async fn create_user(username: String,
          key.private_key.to_pkcs8_pem(LineEnding::default()),
          kdf::Password::from_slice(passphrase.as_bytes()))
     {
-
+        let olm_identity_key = Some(olm_identity_public_key);
+        let client_public_key = Some(client_public_key);
         let client_private_key = client_private_key.to_string();
         let encoded_client_private_key = client_private_key.clone();
         
@@ -162,46 +164,32 @@ pub async fn create_user(username: String,
         // the example uses 1<<16 (64MiB) for the memory; I'm using 1<<4 (16KiB) for my test machine
         // this should be increased to what is tolerable
         if let Ok(derived_key) = kdf::derive_key(&passphrase, &salt, 3, 1<<4, 32) {
-            let salt = encode(&salt);
+            let salt = Some(encode(&salt));
             let encoded_derived_key = encode(derived_key.unprotected_as_bytes());
 
-            let olm_sessions = serde_json::to_string(&HashMap::<String, String>::new()).unwrap();
+            let olm_pickled_account_hash = get_hash(olm_pickled_account.clone());
             
-            if let (Ok(cpk_ciphertext), Ok(olm_ciphertext), Ok(sessions_ciphertext)) =
+            if let (Ok(cpk_ciphertext), Ok(olm_ciphertext)) =
                 (aead::seal(&derived_key, client_private_key.as_bytes()),
-                 aead::seal(&derived_key, olm_pickled_account.as_bytes()),
-                 aead::seal(&derived_key, olm_sessions.as_bytes())) {
+                 aead::seal(&derived_key, olm_pickled_account.as_bytes())) {
                     
-                    let client_private_key = encode(cpk_ciphertext);
-                    let olm_pickled_account = encode(olm_ciphertext);
-                    let olm_sessions = encode(sessions_ciphertext);
-                    let olm_one_time_keys: HashMap<String, Vec<u8>> =
-                        serde_json::from_str(&olm_one_time_keys).unwrap();
-                    let olm_external_identity_keys: HashMap<String, String> = HashMap::new();
-                    let olm_external_one_time_keys: HashMap<String, String> = HashMap::new();
+                    let client_private_key = Some(encode(cpk_ciphertext));
+                    let olm_pickled_account = Some(encode(olm_ciphertext));
                     
-                    if let Ok(keystore) = serde_json::to_string(&KeyStore {
+                    let req = NewUser {
+                        username,
+                        password,
+                        display_name,
+                        client_public_key,
                         client_private_key,
-                        salt,
-                        olm_identity_public_key,
-                        olm_one_time_keys,
                         olm_pickled_account,
-                        olm_external_identity_keys,
-                        olm_external_one_time_keys,
-                        olm_sessions,
-                    }) {
-
-                        log(&format!("serialized keystore\n{keystore:#?}"));
-                        let req = NewUser {
-                            username,
-                            password,
-                            display_name,
-                            client_public_key,
-                            keystore
-                        };
-                        
-                        if let Ok(x) =
-                            Request::post("/api/user/create").json(&req) {   
+                        olm_pickled_account_hash,
+                        olm_identity_key,
+                        salt,
+                    };
+                    
+                    if let Ok(x) =
+                        Request::post("/api/user/create").json(&req) {   
                             if let Ok(y) = x.send().await {
                                 let state = &*ENIGMATICK_STATE.clone();
                                 let user = y.json().await.ok();
@@ -222,9 +210,6 @@ pub async fn create_user(username: String,
                         } else {
                             Option::None
                         }
-                    } else {
-                        Option::None
-                    }
                 } else {
                     Option::None
                 }
