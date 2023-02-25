@@ -23,7 +23,10 @@ pub struct ApInstrument {
     #[serde(rename = "type")]
     pub kind: ApInstrumentType,
     pub content: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub hash: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub uuid: Option<String>,
 }
 
 impl From<OlmSession> for ApInstrument {
@@ -32,6 +35,7 @@ impl From<OlmSession> for ApInstrument {
             kind: ApInstrumentType::OlmSession,
             content: session.session_data,
             hash: Some(session.session_hash),
+            uuid: Some(session.uuid)
         }
     }
 }
@@ -211,4 +215,14 @@ pub async fn send_kex_init(params: KexInitParams) -> bool {
                   serde_json::to_string(&encrypted_session).unwrap(),
                   "application/activity+json".to_string()).await
     }).await.is_some()
+}
+
+#[wasm_bindgen]
+pub async fn get_sessions() -> Option<String> {
+    authenticated(move |_state: EnigmatickState, profile: Profile| async move {
+        let url = format!("/api/user/{}/sessions",
+                             profile.username.clone());
+        
+        send_get(url, "application/json".to_string()).await
+    }).await
 }

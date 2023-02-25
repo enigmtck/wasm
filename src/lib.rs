@@ -62,6 +62,7 @@ lazy_static! {
     };
 }
 
+#[wasm_bindgen]
 pub fn decrypt(encoded_data: String) -> Option<String> {
     let state = &*ENIGMATICK_STATE;
     let state = { if let Ok(x) = state.try_lock() { Option::from(x.clone()) } else { Option::None }};

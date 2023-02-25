@@ -1,7 +1,7 @@
 use serde::{Serialize, Deserialize};
 use wasm_bindgen::prelude::wasm_bindgen;
 
-use crate::{log, authenticated, EnigmatickState, Profile, ApObject, send_post, send_get};
+use crate::{log, authenticated, EnigmatickState, Profile, ApObject, send_post, send_get, error};
 
 #[wasm_bindgen]
 #[derive(Serialize, Deserialize, Default, Clone, Debug)]
@@ -46,7 +46,7 @@ pub async fn get_processing_queue() -> Option<String> {
                             profile.username.clone());
         
         if let Some(data) = send_get(url, "application/activity+json".to_string()).await {
-            //log(&format!("queue response\n{:#?}", resp.text().await));
+            //error(&format!("QUEUE RESPONSE\n{:#?}", data));
             if let Ok(ApObject::Collection(object)) = serde_json::from_str(&data) {
                 Option::from(serde_json::to_string(&object).unwrap())
             } else {

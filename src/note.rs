@@ -96,6 +96,7 @@ impl From<SendParams> for ApNote {
                 kind: ApInstrumentType::OlmSession,
                 content: session,
                 hash: hash.into(),
+                uuid: params.session_uuid,
             }))
         }
         
@@ -161,6 +162,7 @@ pub struct SendParams {
     // OLM session information
     session_data: Option<String>,
     session_hash: Option<String>,
+    session_uuid: Option<String>,
     mutation_of: Option<String>,
     
     identity_key: Option<String>,
@@ -224,6 +226,11 @@ impl SendParams {
 
     pub fn set_content(&mut self, content: String) -> Self {
         self.content = content;
+        self.clone()
+    }
+
+    pub fn set_session_uuid(&mut self, uuid: Option<String>) -> Self {
+        self.session_uuid = uuid;
         self.clone()
     }
     
