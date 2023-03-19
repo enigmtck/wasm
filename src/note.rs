@@ -10,6 +10,7 @@ use crate::{authenticated, EnigmatickState, Profile, log, send_post, get_webfing
 pub enum ApNoteType {
     Note,
     EncryptedNote,
+    VaultNote,
     #[default]
     Unknown,
 }

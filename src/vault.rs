@@ -1,7 +1,8 @@
-use serde::Serialize;
+use base64::encode;
+use serde::{Serialize, Deserialize};
 use wasm_bindgen::prelude::wasm_bindgen;
 
-use crate::{authenticated, EnigmatickState, Profile, send_post, encrypt, resolve_processed_item, get_hash};
+use crate::{authenticated, EnigmatickState, Profile, send_post, encrypt, resolve_processed_item, get_hash, log, send_get, ApObject, ApCollection, error};
 
 
 #[wasm_bindgen]
@@ -53,3 +54,42 @@ pub async fn store_to_vault(data: String, remote_actor: String, resolves: String
         }
     }).await
 }
+
+#[derive(Deserialize, Serialize, Debug, Clone)]
+pub struct VaultRetrievalItem {
+    pub created_at: String,
+    pub updated_at: String,
+    pub uuid: String,
+    pub remote_actor: String,
+    pub data: String,
+}
+
+#[wasm_bindgen]
+pub async fn get_vault(offset: i32, limit: i32, actor: String) -> Option<String> {
+    log("IN get vault");
+    
+    authenticated(move |_state: EnigmatickState, profile: Profile| async move {
+        let username = profile.username.clone();
+
+        let actor = encode(actor);
+        let url = format!("/api/user/{username}/vault?offset={offset}&limit={limit}&actor={actor}");
+        
+        if let Some(data) = send_get(url, "application/json".to_string()).await {
+            error(&format!("VAULT RESPONSE\n{:#?}", data));
+            // if let Ok(items) = serde_json::from_str::<Vec<VaultRetrievalItem>>(&data) {
+            //     Option::from(serde_json::to_string(&items).unwrap())
+            // } else {
+            //     Option::None
+            // }
+
+            if let Ok(object) = serde_json::from_str::<ApCollection>(&data) {
+                Option::from(serde_json::to_string(&object).unwrap())
+            } else {
+                Option::None
+            }
+        } else {
+            Option::None
+        }
+    }).await
+}
+
