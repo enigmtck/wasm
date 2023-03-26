@@ -1,15 +1,16 @@
 use gloo_net::http::Request;
 use wasm_bindgen::prelude::wasm_bindgen;
 
-use crate::{log, authenticated, EnigmatickState, Profile, SignParams, sign, Method, ApObject};
+use crate::{authenticated, EnigmatickState, Profile, SignParams, Method, ApObject};
 
 #[wasm_bindgen]
-pub async fn get_inbox() -> Option<String> {
+pub async fn get_inbox(offset: i32, limit: i32) -> Option<String> {
     authenticated(move |state: EnigmatickState, profile: Profile| async move {
-        let inbox = format!("/user/{}/inbox",
-                            profile.username.clone());
+        let username = profile.username.clone();
         
-        let signature = sign(SignParams {
+        let inbox = format!("/user/{username}/inbox?offset={offset}&limit={limit}");
+        
+        let signature = crate::crypto::sign(SignParams {
             host: state.server_name.unwrap(),
             request_target: inbox.clone(),
             body: Option::None,
@@ -24,7 +25,11 @@ pub async fn get_inbox() -> Option<String> {
             .send().await
         {
             if let Ok(ApObject::Collection(object)) = resp.json().await {
-                Option::from(serde_json::to_string(&object).unwrap())
+                if let Some(items) = object.items {
+                    Option::from(serde_json::to_string(&items).unwrap())
+                } else {
+                    Option::None
+                }
             } else {
                 Option::None
             }

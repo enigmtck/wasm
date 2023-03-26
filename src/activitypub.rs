@@ -4,7 +4,7 @@ use serde::{Serialize, Deserialize};
 use serde_json::Value;
 use wasm_bindgen::prelude::wasm_bindgen;
 
-use crate::{authenticated, EnigmatickState, Profile, send_post, ENIGMATICK_STATE, ApNote, ApSession, ApInstrument};
+use crate::{authenticated, EnigmatickState, Profile, send_post, ENIGMATICK_STATE, ApNote, ApSession, ApInstrument, MaybeReference};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(untagged)]
@@ -132,29 +132,49 @@ impl fmt::Display for ApCollectionType {
     }
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+pub enum ApCollectionPageType {
+    #[default]
+    CollectionPage,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ApCollectionPage {
+    #[serde(rename = "type")]
+    pub kind: ApCollectionPageType,
+    pub next: Option<String>,
+    pub part_of: Option<String>,
+    pub items: Vec<ApObject>,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct ApCollection {
+    #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "@context")]
     pub context: Option<ApContext>,
     #[serde(rename = "type")]
     pub kind: ApCollectionType,
     pub id: Option<String>,
-    pub total_items: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub total_items: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub items: Option<Vec<ApObject>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ordered_items: Option<Vec<ApObject>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub first: Option<String>,
+    pub first: Option<MaybeReference<ApCollectionPage>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub last: Option<String>,
+    pub last: Option<MaybeReference<ApCollectionPage>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub next: Option<String>,
+    pub next: Option<MaybeReference<ApCollectionPage>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub current: Option<String>,
+    pub prev: Option<MaybeReference<ApCollectionPage>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    part_of: Option<String>,
+    pub current: Option<MaybeReference<ApCollectionPage>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub part_of: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -256,7 +276,7 @@ pub struct ApPublicKey {
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ApCapabilities {
-    accepts_chat_messages: bool,
+    accepts_chat_messages: Option<bool>,
 }
 
 #[derive(Serialize, PartialEq, Eq, Deserialize, Clone, Debug, Default)]

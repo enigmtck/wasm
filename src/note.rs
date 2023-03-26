@@ -4,7 +4,7 @@ use serde::{Serialize, Deserialize};
 use serde_json::Value;
 use wasm_bindgen::prelude::wasm_bindgen;
 
-use crate::{authenticated, EnigmatickState, Profile, log, send_post, get_webfinger, ApContext, ApTag, ApFlexible, ApAttachment, ApMention, get_webfinger_from_id, encrypt, ApAttachmentType, get_hash, get_state, ApMentionType, resolve_processed_item, ApInstruments, ApInstrument, ApInstrumentType};
+use crate::{authenticated, EnigmatickState, Profile, log, send_post, get_webfinger, ApContext, ApTag, ApFlexible, ApAttachment, ApMention, get_webfinger_from_id, encrypt, ApAttachmentType, get_hash, get_state, ApMentionType, resolve_processed_item, ApInstruments, ApInstrument, ApInstrumentType, ApActor};
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub enum ApNoteType {
@@ -65,6 +65,8 @@ pub struct ApNote {
     // These are ephemeral attributes to facilitate client operations
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ephemeral_announce: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ephemeral_actors: Option<Vec<ApActor>>,
 }
 
 impl From<SendParams> for ApNote {

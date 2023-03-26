@@ -2,6 +2,7 @@
 
 use gloo_net::http::Request;
 use futures::Future;
+use serde::{Serialize, Deserialize};
 use wasm_bindgen::prelude::*;
 use lazy_static::lazy_static;
 use orion::{aead, aead::SecretKey};
@@ -60,6 +61,41 @@ lazy_static! {
     pub static ref ENIGMATICK_STATE: Arc<Mutex<EnigmatickState>> = {
         Arc::new(Mutex::new(EnigmatickState::new()))
     };
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(untagged)]
+pub enum MaybeMultiple<T> {
+    Single(T),
+    Multiple(Vec<T>),
+}
+
+impl From<String> for MaybeMultiple<String> {
+    fn from(data: String) -> Self {
+        MaybeMultiple::Single(data)
+    }
+}
+
+impl<T: Clone> MaybeMultiple<T> {
+    pub fn single(&self) -> Option<T> {
+        match self {
+            MaybeMultiple::Multiple(s) => {
+                if s.len() == 1 {
+                    Some(s[0].clone())
+                } else {
+                    None
+                }
+            }
+            MaybeMultiple::Single(s) => Some(s.clone()),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(untagged)]
+pub enum MaybeReference<T> {
+    Reference(String),
+    Actual(T),
 }
 
 #[wasm_bindgen]
