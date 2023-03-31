@@ -313,8 +313,10 @@ pub struct ApActor {
     pub preferred_username: String,
     pub inbox: String,
     pub outbox: String,
-    pub followers: String,
-    pub following: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub followers: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub following: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub liked: Option<String>,
     pub public_key: ApPublicKey,
@@ -353,3 +355,4 @@ pub struct ApActor {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ephemeral_leader_ap_id: Option<String>,
 }
+

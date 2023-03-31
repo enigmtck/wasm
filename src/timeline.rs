@@ -19,7 +19,7 @@ pub async fn get_timeline(offset: i32, limit: i32) -> Option<String> {
                     None
                 }
             } else {
-                error(&text);
+                error(&format!("FAILED TO CONVERT TEXT TO COLLECTION\n{text:#}"));
                 None
             }
         } else {

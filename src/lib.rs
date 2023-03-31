@@ -24,6 +24,7 @@ pub mod timeline;
 pub mod session;
 pub mod stream;
 pub mod vault;
+pub mod like;
 
 pub use user::*;
 pub use crypto::*;
@@ -39,6 +40,7 @@ pub use state::*;
 pub use timeline::*;
 pub use stream::*;
 pub use vault::*;
+pub use like::*;
 
 #[wasm_bindgen]
 extern "C" {

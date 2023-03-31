@@ -121,11 +121,7 @@ impl From<SendParams> for ApNote {
 
 #[wasm_bindgen]
 pub async fn get_note(id: String) -> Option<String> {
-    log("in get_note: {id:#?}");
-    
     authenticated(move |_: EnigmatickState, profile: Profile| async move {
-        log("in authenticated");
-        
         #[derive(Debug, Clone, Default, Serialize)]
         pub struct NoteParams {
             id: String,
@@ -133,14 +129,10 @@ pub async fn get_note(id: String) -> Option<String> {
         
         let url = format!("/api/user/{}/remote/note",
                           profile.username.clone());
-
-        log(&format!("{url:#?}"));
         
         let params = NoteParams {
             id
         };
-
-        log(&format!("{params:#?}"));
         
         send_post(url,
                   serde_json::to_string(&params).unwrap(),
