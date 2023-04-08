@@ -1,10 +1,11 @@
 use std::{collections::HashMap, fmt::{self, Debug}};
 
+use chrono::{DateTime, Utc};
 use serde::{Serialize, Deserialize};
 use serde_json::Value;
 use wasm_bindgen::prelude::wasm_bindgen;
 
-use crate::{authenticated, EnigmatickState, Profile, log, send_post, get_webfinger, ApContext, ApTag, ApFlexible, ApAttachment, ApMention, get_webfinger_from_id, encrypt, ApAttachmentType, get_hash, get_state, ApMentionType, resolve_processed_item, ApInstruments, ApInstrument, ApInstrumentType, ApActor};
+use crate::{authenticated, EnigmatickState, Profile, log, send_post, get_webfinger, ApContext, ApTag, ApFlexible, ApAttachment, ApMention, get_webfinger_from_id, encrypt, get_hash, get_state, ApMentionType, resolve_processed_item, ApInstruments, ApInstrument, ApInstrumentType, ApActor, MaybeMultiple, ApAddress};
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub enum ApNoteType {
@@ -21,7 +22,24 @@ impl fmt::Display for ApNoteType {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct Metadata {
+    pub twitter_title: Option<String>,
+    pub description: Option<String>,
+    pub og_description: Option<String>,
+    pub og_title: Option<String>,
+    pub og_image: Option<String>,
+    pub og_site_name: Option<String>,
+    pub twitter_image: Option<String>,
+    pub og_url: Option<String>,
+    pub twitter_description: Option<String>,
+    pub published: Option<String>,
+    pub twitter_site: Option<String>,
+    pub og_type: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct ApNote {
     #[serde(rename = "@context")]
@@ -32,7 +50,7 @@ pub struct ApNote {
     pub id: Option<String>,
     #[serde(rename = "type")]
     pub kind: ApNoteType,
-    pub to: Vec<String>,
+    pub to: MaybeMultiple<ApAddress>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -61,12 +79,74 @@ pub struct ApNote {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub instrument: Option<ApInstruments>,
 
-
     // These are ephemeral attributes to facilitate client operations
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_announce: Option<String>,
+    pub ephemeral_announces: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ephemeral_actors: Option<Vec<ApActor>>,
+
+    // The result of a join with the "likes" table to indicate that a
+    // user has liked this post
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ephemeral_liked: Option<bool>,
+
+    // The result of a join with the "announces" table to indicate that a
+    // user has announces this post
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ephemeral_announced: Option<bool>,
+
+    // The result of a join with the "timeline_cc" table to indicate that
+    // a user was copied directly
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ephemeral_targeted: Option<bool>,
+
+    // This is here because "published" is unreliable; it may or
+    // may not exist and may or may not match the ordering of data
+    // pulled from the database based on "created_at". A mismatch
+    // causes jittery rendering; exposing "created_at" here allows
+    // the UI to order consistently with the database and improves UX.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ephemeral_timestamp: Option<DateTime<Utc>>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ephemeral_metadata: Option<Vec<Metadata>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ephemeral_likes: Option<Vec<String>>,
+}
+
+impl Default for ApNote {
+    fn default() -> ApNote {
+        ApNote {
+            context: Some(ApContext::default()),
+            tag: None,
+            attributed_to: String::new(),
+            id: None,
+            kind: ApNoteType::Note,
+            to: MaybeMultiple::Multiple(vec![]),
+            url: None,
+            published: None,
+            cc: None,
+            replies: None,
+            attachment: None,
+            in_reply_to: None,
+            content: String::new(),
+            summary: None,
+            sensitive: None,
+            atom_uri: None,
+            in_reply_to_atom_uri: None,
+            conversation: None,
+            content_map: None,
+            instrument: None,
+            ephemeral_announces: None,
+            ephemeral_announced: None,
+            ephemeral_actors: None,
+            ephemeral_liked: None,
+            ephemeral_likes: None,
+            ephemeral_targeted: None,
+            ephemeral_timestamp: None,
+            ephemeral_metadata: None,
+        }
+    }
 }
 
 impl From<SendParams> for ApNote {
@@ -106,7 +186,7 @@ impl From<SendParams> for ApNote {
         ApNote {
             context: Option::from(ApContext::default()),
             kind: { if params.is_encrypted { ApNoteType::EncryptedNote } else { ApNoteType::Note } },
-            to,
+            to: MaybeMultiple::Multiple(to.iter().map(|x| ApAddress::Address(x.clone())).collect()),
             cc: Option::from(cc),
             tag: Option::from(tag),
             attachment: attachment.into(),

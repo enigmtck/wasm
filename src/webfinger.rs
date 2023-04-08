@@ -57,7 +57,7 @@ pub async fn get_webfinger(address: String) -> Option<String> {
 
 #[wasm_bindgen]
 pub async fn get_actor(id: String) -> Option<String> {
-    authenticated(move |_: EnigmatickState, profile: Profile| async move {
+    authenticated(move |_: EnigmatickState, profile: Profile| async move {    
         #[derive(Debug, Clone, Default, Serialize)]
         pub struct ActorParams {
             id: String,
@@ -82,9 +82,7 @@ pub async fn get_actor(id: String) -> Option<String> {
 
 #[wasm_bindgen]
 pub async fn get_webfinger_from_id(id: String) -> Option<String> {
-    log(&format!("ID: {id}"));
     if let Some(actor) = get_actor(id.clone()).await {
-        log(&format!("ACTOR\n{actor:#?}"));
         match serde_json::from_str::<ApActor>(&actor) {
             Ok(actor) => {
                 let id_re = regex::Regex::new(r#"https://([a-zA-Z0-9\-\.]+?)/.+"#).unwrap();

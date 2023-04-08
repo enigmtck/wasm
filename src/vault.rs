@@ -2,7 +2,7 @@ use base64::encode;
 use serde::{Serialize, Deserialize};
 use wasm_bindgen::prelude::wasm_bindgen;
 
-use crate::{authenticated, EnigmatickState, Profile, send_post, encrypt, resolve_processed_item, get_hash, log, send_get, ApObject, ApCollection, error};
+use crate::{authenticated, EnigmatickState, Profile, send_post, encrypt, resolve_processed_item, get_hash, log, send_get, ApCollection, error};
 
 
 #[wasm_bindgen]

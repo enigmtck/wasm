@@ -10,6 +10,7 @@ use orion::{aead, aead::SecretKey};
 use std::sync::{Arc, Mutex};
 use std::fmt::{self, Debug};
 
+pub mod announce;
 pub mod user;
 pub mod crypto;
 pub mod activitypub;
@@ -26,6 +27,7 @@ pub mod stream;
 pub mod vault;
 pub mod like;
 
+pub use announce::*;
 pub use user::*;
 pub use crypto::*;
 pub use activitypub::*;
@@ -216,12 +218,12 @@ pub async fn send_post(url: String, body: String, content_type: String) -> Optio
             .await {
                 Ok(x) => match x.text().await {
                     Ok(x) => Option::from(x),
-                    Err(e) => {
+                    Err(_) => {
                         error("UNABLE TO DECODE RESPONSE");
                         Option::None
                     }
                 },
-                Err(e) => {
+                Err(_) => {
                     error("UNABLE TO SEND POST");
                     Option::None
                 }

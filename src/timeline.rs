@@ -1,13 +1,46 @@
 use gloo_net::http::Request;
 use wasm_bindgen::prelude::wasm_bindgen;
 
-use crate::{authenticated, EnigmatickState, Profile, SignParams, Method, ApObject, error};
+use crate::{authenticated, EnigmatickState, Profile, SignParams, Method, ApObject, error, ENIGMATICK_STATE, send_get};
 
 #[wasm_bindgen]
 pub async fn get_timeline(offset: i32, limit: i32) -> Option<String> {
-    let timeline = format!("/api/timeline?offset={offset}&limit={limit}");
+    let authentication: Option<String> = {
+        if let Ok(state) = (*ENIGMATICK_STATE).try_lock() {
+            if let Some(profile) = state.profile.clone() {
+                if state.is_authenticated() {
+                    Some(profile.username)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    };
 
-    if let Ok(resp) = Request::get(&timeline)
+    if let Some(username) = authentication {
+        authenticated(move |_state: EnigmatickState, _profile: Profile| async move {
+            let url = format!("/user/{username}/inbox?offset={offset}&limit={limit}");
+            
+            if let Some(text) = send_get(url, "application/activity+json".to_string()).await {
+                if let Ok(ApObject::Collection(object)) = serde_json::from_str(&text) {
+                    if let Some(items) = object.items {
+                        Option::from(serde_json::to_string(&items).unwrap())
+                    } else {
+                        None
+                    }
+                } else {
+                    error(&format!("FAILED TO CONVERT TEXT TO COLLECTION\n{text:#}"));
+                    None
+                }
+            } else {
+                Option::None
+            }
+        }).await
+    } else if let Ok(resp) = Request::get(&format!("/api/timeline?offset={offset}&limit={limit}"))
         .header("Content-Type", "application/activity+json")
         .send().await
     {

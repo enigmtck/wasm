@@ -279,6 +279,30 @@ pub struct ApCapabilities {
     accepts_chat_messages: Option<bool>,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(untagged)]
+pub enum ApAddress {
+    Address(String),
+}
+
+impl ApAddress {
+    pub fn is_public(&self) -> bool {
+        let ApAddress::Address(x) = self;
+        x.to_lowercase() == *"https://www.w3.org/ns/activitystreams#public"
+    }
+
+    pub fn get_public() -> Self {
+        ApAddress::Address("https://www.w3.org/ns/activitystreams#Public".to_string())
+    }
+}
+
+impl fmt::Display for ApAddress {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let ApAddress::Address(x) = self;
+        write!(f, "{}", x.clone())
+    }
+}
+
 #[derive(Serialize, PartialEq, Eq, Deserialize, Clone, Debug, Default)]
 pub enum ApActorType {
     Application,
