@@ -7,7 +7,7 @@ use rsa::pkcs8::{EncodePublicKey, LineEnding, EncodePrivateKey};
 use serde::{Serialize, Deserialize};
 use wasm_bindgen::prelude::wasm_bindgen;
 
-use crate::{authenticated, EnigmatickState, upload_file, log, ENIGMATICK_STATE, get_key_pair, send_post, encrypt, get_hash};
+use crate::{authenticated, EnigmatickState, upload_file, log, ENIGMATICK_STATE, get_key_pair, send_post, encrypt, get_hash, send_get, ApObject, error, ApActor};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct NewUser {
@@ -336,4 +336,90 @@ pub async fn add_one_time_keys(params: OtkUpdateParams) -> Option<String> {
         send_post(url, data, "application/json".to_string()).await
         //Option::None
     }).await
+}
+
+#[wasm_bindgen]
+pub async fn get_ap_id() -> Option<String> {
+   authenticated(move |state: EnigmatickState, profile: Profile| async move {
+       let username = profile.username;
+       let server = state.get_server_url();
+
+       server.map(|server| format!("{server}/user/{username}"))
+   }).await
+}
+
+#[wasm_bindgen]
+pub async fn get_followers() -> Option<String> {
+    authenticated(move |_: EnigmatickState, profile: Profile| async move {
+        let username = profile.username;
+        let url = format!("/user/{username}/followers");
+        
+        if let Some(text) = send_get(url, "application/activity+json".to_string()).await {
+            if let Ok(ApObject::Collection(object)) = serde_json::from_str(&text) {
+                if let Some(items) = object.items {
+                    Option::from(serde_json::to_string(&items).unwrap())
+                } else if let Some(items) = object.ordered_items {
+                    Option::from(serde_json::to_string(&items).unwrap())
+                } else {
+                    None
+                }
+            } else {
+                error(&format!("FAILED TO CONVERT TEXT TO COLLECTION\n{text:#}"));
+                None
+            }
+        } else {
+            error("FAILED TO RETRIEVE FOLLOWERS");
+            Option::None
+        }
+    }).await 
+}
+
+#[wasm_bindgen]
+pub async fn get_following() -> Option<String> {
+    authenticated(move |_: EnigmatickState, profile: Profile| async move {
+        let username = profile.username;
+        let url = format!("/user/{username}/following");
+        
+        if let Some(text) = send_get(url, "application/activity+json".to_string()).await {
+            if let Ok(ApObject::Collection(object)) = serde_json::from_str(&text) {
+                if let Some(items) = object.items {
+                    Option::from(serde_json::to_string(&items).unwrap())
+                } else if let Some(items) = object.ordered_items {
+                    Option::from(serde_json::to_string(&items).unwrap())
+                } else {
+                    None
+                }
+            } else {
+                error(&format!("FAILED TO CONVERT TEXT TO COLLECTION\n{text:#}"));
+                None
+            }
+        } else {
+            error("FAILED TO RETRIEVE FOLLOWING");
+            Option::None
+        }
+    }).await 
+}
+
+// because of CORS, this should only work for id values that correspond to local URLs
+#[wasm_bindgen]
+pub async fn get_profile(id: String) -> Option<String> {
+    if let Ok(resp) = Request::get(&id.to_string())
+        .header("Content-Type", "application/activity+json")
+        .header("Accept", "application/activity+json")
+        .send().await
+    {
+        if let Ok(text) = resp.text().await {
+            if let Ok(actor) = serde_json::from_str::<ApActor>(&text) {
+                Option::from(serde_json::to_string(&actor).unwrap())
+            } else {
+                error(&format!("FAILED TO CONVERT TEXT TO ACTOR\n{text:#}"));
+                None
+            }
+        } else {
+            error("FAILED TO DECODE RESPONSE TO TEXT");
+            None
+        }
+    } else {
+        None
+    }
 }

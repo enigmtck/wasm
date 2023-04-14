@@ -1,11 +1,12 @@
 use std::{collections::HashMap, fmt::{self, Debug}};
 
 use chrono::{DateTime, Utc};
+use gloo_net::http::Request;
 use serde::{Serialize, Deserialize};
 use serde_json::Value;
 use wasm_bindgen::prelude::wasm_bindgen;
 
-use crate::{authenticated, EnigmatickState, Profile, log, send_post, get_webfinger, ApContext, ApTag, ApFlexible, ApAttachment, ApMention, get_webfinger_from_id, encrypt, get_hash, get_state, ApMentionType, resolve_processed_item, ApInstruments, ApInstrument, ApInstrumentType, ApActor, MaybeMultiple, ApAddress};
+use crate::{authenticated, EnigmatickState, Profile, log, send_post, get_webfinger, ApContext, ApTag, ApFlexible, ApAttachment, ApMention, get_webfinger_from_id, encrypt, get_hash, get_state, ApMentionType, resolve_processed_item, ApInstruments, ApInstrument, ApInstrumentType, ApActor, MaybeMultiple, ApAddress, ApObject, error};
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub enum ApNoteType {
@@ -196,6 +197,33 @@ impl From<SendParams> for ApNote {
             instrument,
             ..Default::default()
         }
+    }
+}
+
+#[wasm_bindgen]
+pub async fn get_local_conversation(uuid: String) -> Option<String> {
+    if let Ok(resp) = Request::get(&format!("/conversation/{uuid}"))
+        .header("Content-Type", "application/activity+json")
+        .send().await
+    {
+        if let Ok(text) = resp.text().await {
+            if let Ok(ApObject::Collection(object)) = serde_json::from_str(&text) {
+                if let Some(items) = object.items {
+                    Option::from(serde_json::to_string(&items).unwrap())
+                } else {
+                    None
+                }
+            } else {
+                error(&format!("FAILED TO CONVERT TEXT TO COLLECTION\n{text:#}"));
+                None
+            }
+        } else {
+            error("FAILED TO DECODE RESPONSE TO TEXT");
+            None
+        }
+    } else {
+        error("FAILED TO SEND REQUEST");
+        None
     }
 }
 

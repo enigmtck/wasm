@@ -185,6 +185,7 @@ pub enum ApObject {
     Session(ApSession),
     Instrument(ApInstrument),
     Note(ApNote),
+    Actor(ApActor),
     #[default]
     Unknown,
 }

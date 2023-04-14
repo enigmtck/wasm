@@ -14,7 +14,8 @@ pub mod announce;
 pub mod user;
 pub mod crypto;
 pub mod activitypub;
-pub mod webfinger;
+pub mod actor;
+pub mod delete;
 pub mod keystore;
 pub mod instance;
 pub mod inbox;
@@ -23,6 +24,7 @@ pub mod processing_queue;
 pub mod state;
 pub mod timeline;
 pub mod session;
+pub mod signature;
 pub mod stream;
 pub mod vault;
 pub mod like;
@@ -31,7 +33,8 @@ pub use announce::*;
 pub use user::*;
 pub use crypto::*;
 pub use activitypub::*;
-pub use webfinger::*;
+pub use actor::*;
+pub use delete::*;
 pub use keystore::*;
 pub use instance::*;
 pub use inbox::*;
@@ -41,6 +44,7 @@ pub use session::*;
 pub use state::*;
 pub use timeline::*;
 pub use stream::*;
+pub use signature::*;
 pub use vault::*;
 pub use like::*;
 
@@ -67,11 +71,13 @@ lazy_static! {
     };
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
 #[serde(untagged)]
 pub enum MaybeMultiple<T> {
     Single(T),
     Multiple(Vec<T>),
+    #[default]
+    None
 }
 
 impl From<String> for MaybeMultiple<String> {
@@ -91,15 +97,18 @@ impl<T: Clone> MaybeMultiple<T> {
                 }
             }
             MaybeMultiple::Single(s) => Some(s.clone()),
+            MaybeMultiple::None => None
         }
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
 #[serde(untagged)]
 pub enum MaybeReference<T> {
     Reference(String),
     Actual(T),
+    #[default]
+    None
 }
 
 #[wasm_bindgen]
