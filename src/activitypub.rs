@@ -178,6 +178,37 @@ pub struct ApCollection {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
+pub enum ApUndoType {
+    #[default]
+    Undo,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ApUndo {
+    #[serde(rename = "@context")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context: Option<ApContext>,
+    #[serde(rename = "type")]
+    pub kind: ApUndoType,
+    pub actor: String,
+    pub id: Option<String>,
+    pub object: MaybeReference<ApObject>,
+}
+
+impl From<ApFollow> for ApUndo {
+    fn from(follow: ApFollow) -> Self {
+        ApUndo {
+            context: Some(ApContext::default()),
+            kind: ApUndoType::default(),
+            actor: follow.actor.clone(),
+            id: follow.id.clone().map(|follow| format!("{}#undo", follow)),
+            object: MaybeReference::Actual(ApObject::Follow(Box::new(follow))),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
 #[serde(untagged)]
 pub enum ApObject {
     Plain(String),
@@ -186,34 +217,33 @@ pub enum ApObject {
     Instrument(ApInstrument),
     Note(ApNote),
     Actor(ApActor),
+    Follow(Box<ApFollow>),
+    Undo(Box<ApUndo>),
     #[default]
     Unknown,
 }
 
 #[derive(Serialize, Deserialize, Default, Debug, Clone)]
 pub enum ApFollowType {
-    Follow,
-    Undo,
     #[default]
-    Unknown
+    Follow
 }
 
-#[derive(Serialize, Deserialize, Default, Debug, Clone)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ApFollow {
-    #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(rename = "@context")]
-    context: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context: Option<ApContext>,
     #[serde(rename = "type")]
-    kind: ApFollowType,
-    actor: String,
-    object: String,
+    pub kind: ApFollowType,
+    pub actor: String,
+    pub id: Option<String>,
+    pub object: ApObject,
 }
 
-type FollowAction = (String, ApFollowType);
-
-impl From<FollowAction> for ApFollow {
-    fn from(action: FollowAction) -> Self {
+impl From<String> for ApFollow {
+    fn from(object: String) -> Self {
         // I'm probably doing this badly; I'm trying to appease the compiler
         // warning me about holding the lock across the await further down
         let state = &*ENIGMATICK_STATE;
@@ -224,10 +254,11 @@ impl From<FollowAction> for ApFollow {
                 let actor = format!("{}/user/{}", server_url, profile.username);
         
                 ApFollow {
-                    context: Option::from("https://www.w3.org/ns/activitystreams".to_string()),
-                    kind: action.1,
+                    id: None,
+                    context: Some(ApContext::default()),
+                    kind: ApFollowType::Follow,
                     actor,
-                    object: action.0            
+                    object: ApObject::Plain(object), 
                 }
             } else {
                 ApFollow::default()
@@ -244,7 +275,7 @@ pub async fn send_follow(address: String) -> bool {
         let outbox = format!("/user/{}/outbox",
                              profile.username.clone());
         
-        let follow: ApFollow = (address, ApFollowType::Follow).into();
+        let follow: ApFollow = address.into();
 
         send_post(outbox,
                   serde_json::to_string(&follow).unwrap(),
@@ -258,10 +289,11 @@ pub async fn send_unfollow(address: String) -> bool {
         let outbox = format!("/user/{}/outbox",
                              profile.username.clone());
         
-        let follow: ApFollow = (address, ApFollowType::Undo).into();
+        let follow: ApFollow = address.into();
+        let undo: ApUndo = follow.into();
 
         send_post(outbox,
-                  serde_json::to_string(&follow).unwrap(),
+                  serde_json::to_string(&undo).unwrap(),
                   "application/activity+json".to_string()).await
     }).await.is_some()
 }
@@ -277,7 +309,8 @@ pub struct ApPublicKey {
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct ApCapabilities {
-    accepts_chat_messages: Option<bool>,
+    pub accepts_chat_messages: Option<bool>,
+    pub enigmatick_encryption: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
