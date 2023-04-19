@@ -171,8 +171,6 @@ impl From<SendParams> for ApNote {
             to.extend(params.recipients.into_values().collect::<Vec<String>>());
             to.extend(params.recipient_ids);
         }
-
-        let attachment: Vec<ApAttachment> = vec![];
         
         let mut instrument: Option<ApInstruments> = Option::None;
         if let (Some(session), Some(hash)) = (params.session_data, params.session_hash) {
@@ -190,7 +188,17 @@ impl From<SendParams> for ApNote {
             to: MaybeMultiple::Multiple(to.iter().map(|x| ApAddress::Address(x.clone())).collect()),
             cc: Option::from(cc),
             tag: Option::from(tag),
-            attachment: attachment.into(),
+            attachment: {
+                if let Some(attachments) = params.attachments {
+                    if let Ok(attachments) = serde_json::from_str::<Vec<ApAttachment>>(&attachments) {
+                        Some(attachments)
+                    } else {
+                        Some(vec![])
+                    }
+                } else {
+                    Some(vec![])
+                }
+            },
             content: params.content,
             in_reply_to: params.in_reply_to,
             conversation: params.conversation,
@@ -261,6 +269,7 @@ pub struct SendParams {
     content: String,
     in_reply_to: Option<String>,
     conversation: Option<String>,
+    attachments: Option<String>,
 
     // OLM session information
     session_data: Option<String>,
@@ -363,6 +372,11 @@ impl SendParams {
 
     pub fn set_conversation(&mut self, conversation: String) -> Self {
         self.conversation = Some(conversation);
+        self.clone()
+    }
+
+    pub fn set_attachments(&mut self, attachments: String) -> Self {
+        self.attachments = Some(attachments);
         self.clone()
     }
 

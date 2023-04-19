@@ -289,8 +289,8 @@ pub async fn upload_file(server_name: String, upload: String, data: &[u8], lengt
     let signature = sign(SignParams {
         host: server_name,
         request_target: upload.clone(),
-        body: Option::None,
-        data: Option::from(Vec::from(data)),
+        body: None,
+        data: Some(Vec::from(data)),
         method: Method::Post
     });
 
@@ -302,9 +302,13 @@ pub async fn upload_file(server_name: String, upload: String, data: &[u8], lengt
         .body(j)
         .send().await
     {
-        log(&format!("upload completed\n{resp:#?}"));
-        Option::from("{\"success\":true}".to_string())
+        if let Ok(attachment) = resp.json::<ApAttachment>().await {
+            log(&format!("upload completed\n{attachment:#?}"));
+            Some(serde_json::to_string(&attachment).unwrap())
+        } else {
+            None
+        }
     } else {
-        Option::None
+        None
     }
 }

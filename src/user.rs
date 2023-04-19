@@ -222,6 +222,16 @@ pub async fn create_user(username: String,
 }
 
 #[wasm_bindgen]
+pub async fn upload_image(data: &[u8], length: u32) -> Option<String> {
+    authenticated(move |state: EnigmatickState, profile: Profile| async move {
+        let upload = format!("/api/user/{}/image",
+                             profile.username.clone());
+
+        upload_file(state.server_name.unwrap(), upload, data, length).await
+    }).await
+}
+
+#[wasm_bindgen]
 pub async fn upload_avatar(data: &[u8], length: u32, extension: String) {
     authenticated(move |state: EnigmatickState, profile: Profile| async move {
         let upload = format!("/api/user/{}/avatar?extension={}",
