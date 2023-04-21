@@ -276,14 +276,15 @@ pub async fn update_password(current: String, updated: String) -> bool {
 
 
 #[wasm_bindgen]
-pub async fn update_summary(summary: String) -> Option<String> {
+pub async fn update_summary(summary: String, markdown: String) -> Option<String> {
     authenticated(move |_: EnigmatickState, profile: Profile| async move {
         #[derive(Serialize, Deserialize)]
         struct SummaryUpdate {
-            content: String
+            content: String,
+            markdown: String,
         }
 
-        let data = SummaryUpdate { content: summary };
+        let data = SummaryUpdate { content: summary, markdown };
         
         let url = format!("/api/user/{}/update/summary",
                           profile.username);

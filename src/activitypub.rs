@@ -412,5 +412,7 @@ pub struct ApActor {
     pub ephemeral_following: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ephemeral_leader_ap_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ephemeral_summary_markdown: Option<String>,
 }
 
