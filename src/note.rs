@@ -6,7 +6,7 @@ use serde::{Serialize, Deserialize};
 use serde_json::Value;
 use wasm_bindgen::prelude::wasm_bindgen;
 
-use crate::{authenticated, EnigmatickState, Profile, log, send_post, get_webfinger, ApContext, ApTag, ApFlexible, ApAttachment, ApMention, get_webfinger_from_id, encrypt, get_hash, get_state, ApMentionType, resolve_processed_item, ApInstruments, ApInstrument, ApInstrumentType, ApActor, MaybeMultiple, ApAddress, ApObject, error};
+use crate::{authenticated, EnigmatickState, Profile, log, send_post, send_get, ApContext, ApTag, ApFlexible, ApAttachment, ApMention, get_webfinger_from_id, encrypt, get_hash, get_state, ApMentionType, resolve_processed_item, ApInstruments, ApInstrument, ApInstrumentType, ApActor, MaybeMultiple, ApAddress, ApObject, error};
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub enum ApNoteType {
@@ -237,23 +237,9 @@ pub async fn get_local_conversation(uuid: String) -> Option<String> {
 
 #[wasm_bindgen]
 pub async fn get_note(id: String) -> Option<String> {
-    authenticated(move |_: EnigmatickState, profile: Profile| async move {
-        #[derive(Debug, Clone, Default, Serialize)]
-        pub struct NoteParams {
-            id: String,
-        }
-        
-        let url = format!("/api/user/{}/remote/note",
-                          profile.username.clone());
-        
-        let params = NoteParams {
-            id
-        };
-        
-        send_post(url,
-                  serde_json::to_string(&params).unwrap(),
-                  "application/json".to_string()).await
-    }).await 
+    let path = format!("/api/remote/note?id={}", urlencoding::encode(&id));
+    
+    send_get(path, "application/json".to_string()).await
 }
 
 #[wasm_bindgen]
@@ -332,7 +318,7 @@ impl SendParams {
 
     // address: @user@domain.tld
     pub async fn add_address(&mut self, address: String) -> Self {
-        self.recipients.insert(address.clone(), get_webfinger(address).await.unwrap_or_default());
+        self.recipients.insert(address.clone(), get_webfinger_from_id(address).await.unwrap_or_default());
         self.clone()
     }
 

@@ -2,7 +2,7 @@ use base64::encode;
 use serde::{Serialize, Deserialize};
 use wasm_bindgen::prelude::wasm_bindgen;
 
-use crate::{log, authenticated, EnigmatickState, Profile, send_get, decrypt, send_post, get_webfinger, ApContext};
+use crate::{log, authenticated, EnigmatickState, Profile, send_get, decrypt, send_post, ApContext, get_webfinger_from_id, get_actor_from_webfinger, ApActor};
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub enum ApSessionType {
@@ -189,7 +189,13 @@ impl KexInitParams {
     }
     
     pub async fn set_recipient_webfinger(&mut self, address: String) -> Self {
-        self.recipient = get_webfinger(address).await.unwrap_or_default();
+        if let Some(actor) = get_actor_from_webfinger(address).await {
+            if let Ok(actor) = serde_json::from_str::<ApActor>(&actor) {
+                if let Some(id) = actor.id {
+                    self.recipient = id;
+                }
+            }
+        }
         self.clone()
     }
 

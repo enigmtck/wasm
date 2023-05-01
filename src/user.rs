@@ -434,3 +434,20 @@ pub async fn get_profile(id: String) -> Option<String> {
         None
     }
 }
+
+#[wasm_bindgen]
+pub async fn get_profile_by_username(username: String) -> Option<String> {
+    let server_url = {
+        if let Ok(state) = (*ENIGMATICK_STATE).try_lock() {
+            state.server_url.clone()
+        } else {
+            None
+        }
+    };
+
+    if let Some(server_url) = server_url {
+        get_profile(format!("{server_url}/user/{username}")).await
+    } else {
+        None
+    }
+}

@@ -1,8 +1,134 @@
-use gloo_net::http::Request;
 use serde::{Serialize, Deserialize};
 use wasm_bindgen::prelude::wasm_bindgen;
+use std::fmt::{self, Debug};
 
-use crate::{authenticated, EnigmatickState, Profile, log, send_post, ApActor};
+use crate::{send_get, ApContext, ApTag, ApAttachment, ApImage, authenticated, EnigmatickState, Profile, ENIGMATICK_STATE};
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ApPublicKey {
+    pub id: String,
+    pub owner: String,
+    pub public_key_pem: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ApCapabilities {
+    pub accepts_chat_messages: Option<bool>,
+    pub enigmatick_encryption: Option<bool>,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(untagged)]
+pub enum ApAddress {
+    Address(String),
+}
+
+impl ApAddress {
+    pub fn is_public(&self) -> bool {
+        let ApAddress::Address(x) = self;
+        x.to_lowercase() == *"https://www.w3.org/ns/activitystreams#public"
+    }
+
+    pub fn get_public() -> Self {
+        ApAddress::Address("https://www.w3.org/ns/activitystreams#Public".to_string())
+    }
+}
+
+impl fmt::Display for ApAddress {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let ApAddress::Address(x) = self;
+        write!(f, "{}", x.clone())
+    }
+}
+
+#[derive(Serialize, PartialEq, Eq, Deserialize, Clone, Debug, Default)]
+pub enum ApActorType {
+    Application,
+    Group,
+    Organization,
+    Person,
+    Service,
+    #[default]
+    Unknown,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ApEndpoint {
+    pub shared_inbox: String,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
+pub struct ApActor {
+    #[serde(rename = "@context")]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context: Option<ApContext>,
+    #[serde(rename = "type")]
+    pub kind: ApActorType,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+    pub preferred_username: String,
+    pub inbox: String,
+    pub outbox: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub followers: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub following: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub liked: Option<String>,
+    pub public_key: ApPublicKey,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub featured: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub featured_tags: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub manually_approves_followers: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub published: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tag: Option<Vec<ApTag>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub attachment: Option<Vec<ApAttachment>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub endpoints: Option<ApEndpoint>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub icon: Option<ApImage>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub image: Option<ApImage>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub also_known_as: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub discoverable: Option<bool>,
+
+    // perhaps SoapBox/Pleroma-specific
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub capabilities: Option<ApCapabilities>,
+
+    // These facilitate consolidation of joined tables in to this object
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ephemeral_followers: Option<Vec<ApActor>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ephemeral_leaders: Option<Vec<ApActor>>,
+
+    // These are ephemeral attributes to facilitate client operations
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ephemeral_following: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ephemeral_leader_ap_id: Option<String>,
+
+    // These are used for user operations on their own profile
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ephemeral_summary_markdown: Option<String>,
+}
 
 #[derive(Serialize, Deserialize)]
 pub struct WebfingerLink {
@@ -21,90 +147,79 @@ pub struct WebfingerResponse {
 }
 
 #[wasm_bindgen]
-pub async fn get_webfinger(address: String) -> Option<String> {
-    let address_re = regex::Regex::new(r#"@(.+?)@(.+)"#).unwrap();
-    
-    if let Some(address_match) = address_re.captures(&address) {
-        //let username = &address_match[1].to_string();
-        let domain = &address_match[2].to_string();
-        
-        let url = format!("https://{}/.well-known/webfinger?resource=acct:{}",
-                          domain,
-                          address.trim_start_matches('@'));
+pub async fn get_remote_resource(
+    resource: String,
+    webfinger: String,
+    page: Option<String>,
+) -> Option<String> {
+    let path = match page {
+        Some(page) => format!(
+            "/api/remote/{resource}?webfinger={webfinger}&page={}",
+            urlencoding::encode(&page)
+        ),
+        None => format!("/api/remote/{resource}?webfinger={webfinger}"),
+    };
+    send_get(path, "application/json".to_string()).await
+}
 
-        if let Ok(x) = Request::get(&url).send().await {
-            if let Ok(t) = x.json::<WebfingerResponse>().await {
+#[wasm_bindgen]
+pub async fn get_remote_following(webfinger: String, page: Option<String>) -> Option<String> {
+    get_remote_resource("following".to_string(), webfinger, page).await
+}
 
-                let mut ret = Option::<String>::None;
-                
-                for link in t.links {
-                    if link.rel == "self" && link.kind == Some("application/activity+json".to_string()) {
-                        ret = link.href;
-                    }
+#[wasm_bindgen]
+pub async fn get_remote_followers(webfinger: String, page: Option<String>) -> Option<String> {
+    get_remote_resource("followers".to_string(), webfinger, page).await
+}
+
+#[wasm_bindgen]
+pub async fn get_remote_outbox(webfinger: String, page: Option<String>) -> Option<String> {
+    get_remote_resource("outbox".to_string(), webfinger, page).await
+}
+
+#[wasm_bindgen]
+pub async fn get_actor_from_webfinger(webfinger: String) -> Option<String> {
+    let authentication: Option<String> = {
+        if let Ok(state) = (*ENIGMATICK_STATE).try_lock() {
+            if let Some(profile) = state.profile.clone() {
+                if state.is_authenticated() {
+                    Some(profile.username)
+                } else {
+                    None
                 }
-
-                ret
             } else {
-                Option::None
+                None
             }
         } else {
-            Option::None
+            None
         }
-    } else {
-        Option::None
-    }
+    };
+
+    let url = {
+        if let Some(username) = authentication {
+            format!("/api/user/{username}/remote/actor?webfinger={webfinger}")
+        } else {
+            format!("/api/remote/actor?webfinger={webfinger}")
+        }
+    };
+    
+    send_get(url, "application/json".to_string()).await
 }
 
 #[wasm_bindgen]
 pub async fn get_actor(id: String) -> Option<String> {
-    authenticated(move |_: EnigmatickState, profile: Profile| async move {    
-        #[derive(Debug, Clone, Default, Serialize)]
-        pub struct ActorParams {
-            id: String,
-        }
-        
-        let url = format!("/api/user/{}/remote/actor",
-                          profile.username.clone());
-
-        log(&format!("{url:#?}"));
-        
-        let params = ActorParams {
-            id
-        };
-
-        log(&format!("{params:#?}"));
-        
-        send_post(url,
-                  serde_json::to_string(&params).unwrap(),
-                  "application/json".to_string()).await
-    }).await 
+    if let Some(webfinger) = get_webfinger_from_id(id).await {
+        get_actor_from_webfinger(webfinger).await
+    } else {
+        None
+    }
 }
 
 #[wasm_bindgen]
 pub async fn get_webfinger_from_id(id: String) -> Option<String> {
-    if let Some(actor) = get_actor(id.clone()).await {
-        match serde_json::from_str::<ApActor>(&actor) {
-            Ok(actor) => {
-                let id_re = regex::Regex::new(r#"https://([a-zA-Z0-9\-\.]+?)/.+"#).unwrap();
-                if let Some(captures) = id_re.captures(&id.clone()) {
-                    if let Some(server_name) = captures.get(1) {
-                        Option::from(format!("@{}@{}", actor.preferred_username, server_name.as_str()))
-                    } else {
-                        log("INSUFFICIENT REGEX CAPTURES");
-                        Option::None
-                    }
-                } else {
-                    log("FAILED TO MATCH PATTERN");
-                    Option::None
-                }
-            }   
-            Err(e) => {
-                log(&format!("FAILED TO DESERIALIZE ACTOR\n{e:#?}"));
-                Option::None
-            }
-        }
-    } else {
-        log("FAILED TO RETRIEVE ACTOR");
-        Option::None
-    }
+    let id = urlencoding::encode(&id);
+    let url = format!("/api/remote/webfinger?id={id}");
+    
+    send_get(url, "application/json".to_string()).await
 }
+

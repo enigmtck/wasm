@@ -11,7 +11,10 @@ use std::sync::{Arc, Mutex};
 use std::fmt::{self, Debug};
 
 pub mod announce;
+pub mod accept;
+pub mod create;
 pub mod user;
+pub mod collection;
 pub mod crypto;
 pub mod activitypub;
 pub mod actor;
@@ -19,6 +22,7 @@ pub mod delete;
 pub mod keystore;
 pub mod instance;
 pub mod inbox;
+pub mod outbox;
 pub mod note;
 pub mod processing_queue;
 pub mod state;
@@ -28,9 +32,18 @@ pub mod signature;
 pub mod stream;
 pub mod vault;
 pub mod like;
+pub mod invite;
+pub mod join;
+pub mod update;
+pub mod block;
+pub mod add;
+pub mod remove;
 
 pub use announce::*;
+pub use accept::*;
+pub use create::*;
 pub use user::*;
+pub use collection::*;
 pub use crypto::*;
 pub use activitypub::*;
 pub use actor::*;
@@ -38,6 +51,7 @@ pub use delete::*;
 pub use keystore::*;
 pub use instance::*;
 pub use inbox::*;
+pub use outbox::*;
 pub use note::*;
 pub use processing_queue::*;
 pub use session::*;
@@ -47,6 +61,12 @@ pub use stream::*;
 pub use signature::*;
 pub use vault::*;
 pub use like::*;
+pub use invite::*;
+pub use join::*;
+pub use update::*;
+pub use block::*;
+pub use add::*;
+pub use remove::*;
 
 #[wasm_bindgen]
 extern "C" {
@@ -69,6 +89,14 @@ lazy_static! {
     pub static ref ENIGMATICK_STATE: Arc<Mutex<EnigmatickState>> = {
         Arc::new(Mutex::new(EnigmatickState::new()))
     };
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(untagged)]
+pub enum ActivityPub {
+    Activity(ApActivity),
+    Actor(ApActor),
+    Object(ApObject),
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -264,12 +292,16 @@ pub async fn send_get(url: String, content_type: String) -> Option<String> {
             .header("Content-Type", &content_type)
             .send().await
         {
-            Ok(x) => match x.text().await {
+            Ok(x) if x.status() == 200 => match x.text().await {
                 Ok(x) => Option::from(x),
                 Err(e) => {
                     error(&format!("ERROR PERFORMING GET\n{e:#?}"));
                     Option::None
                 }
+            },
+            Ok(x) => {
+                error(&format!("ERROR PERFORMING GET\n{x:#?}"));
+                Option::None
             },
             Err(e) => {
                 error(&format!("ERROR PERFORMING GET\n{e:#?}"));

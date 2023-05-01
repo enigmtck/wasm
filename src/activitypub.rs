@@ -1,10 +1,10 @@
-use std::fmt::{self, Debug};
+use std::fmt::Debug;
 
 use serde::{Serialize, Deserialize};
 use serde_json::Value;
 use wasm_bindgen::prelude::wasm_bindgen;
 
-use crate::{authenticated, EnigmatickState, Profile, send_post, ENIGMATICK_STATE, ApNote, ApSession, ApInstrument, MaybeReference};
+use crate::{authenticated, EnigmatickState, Profile, send_post, ENIGMATICK_STATE, ApNote, ApSession, ApInstrument, MaybeReference, ApActor, ApCollection, ApCollectionPage, ApDelete, ApLike, ApAnnounce, ApAccept, ApCreate, ApInvite, ApJoin, ApUpdate, ApBlock, ApAdd, ApRemove};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(untagged)]
@@ -119,65 +119,6 @@ impl Default for ApContext {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
-pub enum ApCollectionType {
-    Collection,
-    OrderedCollection,
-    #[default]
-    Unknown,
-}
-
-impl fmt::Display for ApCollectionType {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        Debug::fmt(self, f)
-    }
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
-pub enum ApCollectionPageType {
-    #[default]
-    CollectionPage,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-#[serde(rename_all = "camelCase")]
-pub struct ApCollectionPage {
-    #[serde(rename = "type")]
-    pub kind: ApCollectionPageType,
-    pub next: Option<String>,
-    pub part_of: Option<String>,
-    pub items: Vec<ApObject>,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-#[serde(rename_all = "camelCase")]
-pub struct ApCollection {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[serde(rename = "@context")]
-    pub context: Option<ApContext>,
-    #[serde(rename = "type")]
-    pub kind: ApCollectionType,
-    pub id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub total_items: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub items: Option<Vec<ApObject>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ordered_items: Option<Vec<ApObject>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub first: Option<MaybeReference<ApCollectionPage>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub last: Option<MaybeReference<ApCollectionPage>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub next: Option<MaybeReference<ApCollectionPage>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub prev: Option<MaybeReference<ApCollectionPage>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub current: Option<MaybeReference<ApCollectionPage>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub part_of: Option<String>,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub enum ApUndoType {
     #[default]
     Undo,
@@ -206,21 +147,6 @@ impl From<ApFollow> for ApUndo {
             object: MaybeReference::Actual(ApObject::Follow(Box::new(follow))),
         }
     }
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
-#[serde(untagged)]
-pub enum ApObject {
-    Plain(String),
-    Collection(ApCollection),
-    Session(ApSession),
-    Instrument(ApInstrument),
-    Note(ApNote),
-    Actor(ApActor),
-    Follow(Box<ApFollow>),
-    Undo(Box<ApUndo>),
-    #[default]
-    Unknown,
 }
 
 #[derive(Serialize, Deserialize, Default, Debug, Clone)]
@@ -269,6 +195,42 @@ impl From<String> for ApFollow {
     }
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[serde(untagged)]
+pub enum ApObject {
+    Plain(String),
+    Collection(ApCollection),
+    CollectionPage(ApCollectionPage),
+    Session(ApSession),
+    Instrument(ApInstrument),
+    Note(ApNote),
+    Actor(ApActor),
+    Follow(Box<ApFollow>),
+    Undo(Box<ApUndo>),
+    #[default]
+    Unknown,
+}
+
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(untagged)]
+pub enum ApActivity {
+    Delete(Box<ApDelete>),
+    Like(Box<ApLike>),
+    Undo(Box<ApUndo>),
+    Accept(Box<ApAccept>),
+    Follow(ApFollow),
+    Announce(ApAnnounce),
+    Create(ApCreate),
+    Invite(ApInvite),
+    Join(ApJoin),
+    Update(ApUpdate),
+    Block(ApBlock),
+    Add(ApAdd),
+    Remove(ApRemove),
+}
+
+
 #[wasm_bindgen]
 pub async fn send_follow(address: String) -> bool {
     authenticated(move |_: EnigmatickState, profile: Profile| async move {
@@ -298,121 +260,4 @@ pub async fn send_unfollow(address: String) -> bool {
     }).await.is_some()
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct ApPublicKey {
-    pub id: String,
-    pub owner: String,
-    pub public_key_pem: String,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct ApCapabilities {
-    pub accepts_chat_messages: Option<bool>,
-    pub enigmatick_encryption: Option<bool>,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-#[serde(untagged)]
-pub enum ApAddress {
-    Address(String),
-}
-
-impl ApAddress {
-    pub fn is_public(&self) -> bool {
-        let ApAddress::Address(x) = self;
-        x.to_lowercase() == *"https://www.w3.org/ns/activitystreams#public"
-    }
-
-    pub fn get_public() -> Self {
-        ApAddress::Address("https://www.w3.org/ns/activitystreams#Public".to_string())
-    }
-}
-
-impl fmt::Display for ApAddress {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let ApAddress::Address(x) = self;
-        write!(f, "{}", x.clone())
-    }
-}
-
-#[derive(Serialize, PartialEq, Eq, Deserialize, Clone, Debug, Default)]
-pub enum ApActorType {
-    Application,
-    Group,
-    Organization,
-    Person,
-    Service,
-    #[default]
-    Unknown,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-#[serde(rename_all = "camelCase")]
-pub struct ApEndpoint {
-    pub shared_inbox: String,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug)]
-#[serde(rename_all = "camelCase")]
-pub struct ApActor {
-    #[serde(rename = "@context")]
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub context: Option<ApContext>,
-    #[serde(rename = "type")]
-    pub kind: ApActorType,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub name: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub summary: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub id: Option<String>,
-    pub preferred_username: String,
-    pub inbox: String,
-    pub outbox: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub followers: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub following: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub liked: Option<String>,
-    pub public_key: ApPublicKey,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub featured: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub featured_tags: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub url: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub manually_approves_followers: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub published: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub tag: Option<Vec<ApTag>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub attachment: Option<Vec<ApAttachment>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub endpoints: Option<ApEndpoint>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub icon: Option<ApImage>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub image: Option<ApImage>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub also_known_as: Option<Vec<String>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub discoverable: Option<bool>,
-
-    // perhaps SoapBox/Pleroma-specific
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub capabilities: Option<ApCapabilities>,
-
-    // These are ephemeral attributes to facilitate client operations
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_following: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_leader_ap_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_summary_markdown: Option<String>,
-}
 
