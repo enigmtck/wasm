@@ -87,14 +87,14 @@ pub struct ApNote {
     pub ephemeral_actors: Option<Vec<ApActor>>,
 
     // The result of a join with the "likes" table to indicate that a
-    // user has liked this post
+    // user has liked this post - should contain the UUID of the record
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_liked: Option<bool>,
+    pub ephemeral_liked: Option<String>,
 
     // The result of a join with the "announces" table to indicate that a
-    // user has announces this post
+    // user has announced this post - should contain the UUID of the record
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_announced: Option<bool>,
+    pub ephemeral_announced: Option<String>,
 
     // The result of a join with the "timeline_cc" table to indicate that
     // a user was copied directly

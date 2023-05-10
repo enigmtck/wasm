@@ -6,10 +6,9 @@ use crate::{ActivityPub, ApContext, MaybeReference};
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub enum ApCollectionType {
+    #[default]
     Collection,
     OrderedCollection,
-    #[default]
-    Unknown,
 }
 
 impl fmt::Display for ApCollectionType {
@@ -28,10 +27,17 @@ pub enum ApCollectionPageType {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct ApCollectionPage {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "@context")]
+    pub context: Option<ApContext>,
     #[serde(rename = "type")]
     pub kind: ApCollectionPageType,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub first: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prev: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

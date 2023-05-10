@@ -19,6 +19,7 @@ pub mod crypto;
 pub mod activitypub;
 pub mod actor;
 pub mod delete;
+pub mod follow;
 pub mod keystore;
 pub mod instance;
 pub mod inbox;
@@ -38,6 +39,7 @@ pub mod update;
 pub mod block;
 pub mod add;
 pub mod remove;
+pub mod undo;
 
 pub use announce::*;
 pub use accept::*;
@@ -48,6 +50,7 @@ pub use crypto::*;
 pub use activitypub::*;
 pub use actor::*;
 pub use delete::*;
+pub use follow::*;
 pub use keystore::*;
 pub use instance::*;
 pub use inbox::*;
@@ -67,6 +70,7 @@ pub use update::*;
 pub use block::*;
 pub use add::*;
 pub use remove::*;
+pub use undo::*;
 
 #[wasm_bindgen]
 extern "C" {
@@ -114,6 +118,12 @@ impl From<String> for MaybeMultiple<String> {
     }
 }
 
+impl<T> From<Vec<T>> for MaybeMultiple<T> {
+    fn from(data: Vec<T>) -> Self {
+        MaybeMultiple::Multiple(data)
+    }
+}
+
 impl<T: Clone> MaybeMultiple<T> {
     pub fn single(&self) -> Option<T> {
         match self {
@@ -128,6 +138,21 @@ impl<T: Clone> MaybeMultiple<T> {
             MaybeMultiple::None => None
         }
     }
+
+    pub fn multiple(&self) -> Vec<T> {
+        match self {
+            MaybeMultiple::Multiple(data) => data.clone(),
+            MaybeMultiple::Single(data) => {
+                vec![data.clone()]
+            }
+            MaybeMultiple::None => vec![],
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+pub struct Identifier {
+    id: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -135,8 +160,37 @@ impl<T: Clone> MaybeMultiple<T> {
 pub enum MaybeReference<T> {
     Reference(String),
     Actual(T),
+    Identifier(Identifier),
     #[default]
-    None
+    None,
+}
+
+impl<T> fmt::Display for MaybeReference<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            MaybeReference::Reference(reference) => f.write_str(reference),
+            MaybeReference::Identifier(identifier) => f.write_str(&identifier.id),
+            _ => f.write_str("UNDEFINED"),
+        }
+    }
+}
+
+impl From<ApObject> for MaybeReference<ApObject> {
+    fn from(object: ApObject) -> Self {
+        MaybeReference::Actual(object)
+    }
+}
+
+impl From<ApActivity> for MaybeReference<ApActivity> {
+    fn from(activity: ApActivity) -> Self {
+        MaybeReference::Actual(activity)
+    }
+}
+
+impl From<String> for MaybeReference<String> {
+    fn from(reference: String) -> Self {
+        MaybeReference::Reference(reference)
+    }
 }
 
 #[wasm_bindgen]
@@ -343,4 +397,14 @@ pub async fn upload_file(server_name: String, upload: String, data: &[u8], lengt
     } else {
         None
     }
+}
+
+#[wasm_bindgen]
+pub fn get_activity_ap_id_from_uuid(uuid: String) -> Option<String> {
+    let server_name: Option<String> = {
+        if let Ok(x) = (*ENIGMATICK_STATE).try_lock() {
+            x.clone().server_name } else { Option::None }
+    };
+
+    server_name.map(|x| format!("https://{}/activities/{}", x, uuid))
 }

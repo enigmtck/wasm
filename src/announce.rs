@@ -5,7 +5,7 @@ use wasm_bindgen::prelude::wasm_bindgen;
 
 use crate::{
     authenticated, get_state, log, send_post, ApContext,
-    EnigmatickState, Profile, MaybeMultiple, ApAddress,
+    EnigmatickState, Profile, MaybeMultiple, ApAddress, ApUndo,
 };
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -36,7 +36,7 @@ pub struct ApAnnounce {
 }
 
 impl ApAnnounce {
-    pub async fn new(cc: MaybeMultiple<ApAddress>, object: String) -> Option<Self> {
+    pub async fn new(object: String, id: Option<String>) -> Option<Self> {
         let state = get_state().await;
         if let (Some(profile), Some(server_url)) = (state.profile, state.server_url) {
             Some(ApAnnounce {
@@ -44,10 +44,10 @@ impl ApAnnounce {
                 kind: ApAnnounceType::default(),
                 actor: format!("{server_url}/user/{}",
                                profile.username),
-                id: None,
+                id,
                 object,
                 to: MaybeMultiple::Multiple(vec![ApAddress::get_public()]),
-                cc: Some(cc),
+                cc: None,
             })
         } else {
             None
@@ -56,18 +56,35 @@ impl ApAnnounce {
 }
 
 #[wasm_bindgen]
-pub async fn send_announce(object_actor: String, object: String) -> bool {
+pub async fn send_announce(object: String) -> Option<String> {
     authenticated(move |_: EnigmatickState, profile: Profile| async move {
         let outbox = format!("/user/{}/outbox",
                              profile.username.clone());
         
-        let announce = ApAnnounce::new(
-            MaybeMultiple::Multiple(vec![ApAddress::Address(object_actor)]), object).await;
+        let announce = ApAnnounce::new(object, None).await;
 
         log(&format!("ANNOUNCE\n{announce:#?}"));
         send_post(outbox,
                   serde_json::to_string(&announce).unwrap(),
                   "application/activity+json".to_string()).await
-        //Some("".to_string())
-    }).await.is_some()
+    }).await
+}
+
+#[wasm_bindgen]
+pub async fn send_unannounce(object: String, id: String) -> Option<String> {
+    authenticated(move |_: EnigmatickState, profile: Profile| async move {
+        let outbox = format!("/user/{}/outbox",
+                             profile.username.clone());
+
+        if let Some(announce) = ApAnnounce::new(object, Some(id)).await {
+            let undo: ApUndo = announce.into();
+
+            log(&format!("UNANNOUNCE\n{undo:#?}"));
+            send_post(outbox,
+                      serde_json::to_string(&undo).unwrap(),
+                      "application/activity+json".to_string()).await
+        } else {
+            None
+        }
+    }).await
 }

@@ -5,7 +5,7 @@ use wasm_bindgen::prelude::wasm_bindgen;
 
 use crate::{
     authenticated, get_state, log, send_post, ApContext,
-    EnigmatickState, Profile,
+    EnigmatickState, Profile, ApUndo,
 };
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -35,7 +35,7 @@ pub struct ApLike {
 }
 
 impl ApLike {
-    pub async fn new(to: String, object: String) -> Self {
+    pub async fn new(to: String, object: String, id: Option<String>) -> Self {
         let state = get_state().await;
         if let (Some(profile), Some(server_url)) = (state.profile, state.server_url) {
             ApLike {
@@ -43,7 +43,7 @@ impl ApLike {
                 kind: ApLikeType::default(),
                 actor: format!("{server_url}/user/{}",
                                profile.username),
-                id: None,
+                id,
                 object,
                 to
             }
@@ -54,17 +54,32 @@ impl ApLike {
 }
 
 #[wasm_bindgen]
-pub async fn send_like(to: String, object: String) -> bool {
+pub async fn send_like(to: String, object: String) -> Option<String> {
     authenticated(move |_: EnigmatickState, profile: Profile| async move {
         let outbox = format!("/user/{}/outbox",
                              profile.username.clone());
         
-        let like = ApLike::new(to, object).await;
+        let like = ApLike::new(to, object, None).await;
 
         log(&format!("LIKE\n{like:#?}"));
         send_post(outbox,
                   serde_json::to_string(&like).unwrap(),
                   "application/activity+json".to_string()).await
-        //Some("".to_string())
-    }).await.is_some()
+    }).await
+}
+
+#[wasm_bindgen]
+pub async fn send_unlike(to: String, object: String, id: String) -> Option<String> {
+    authenticated(move |_: EnigmatickState, profile: Profile| async move {
+        let outbox = format!("/user/{}/outbox",
+                             profile.username.clone());
+        
+        let like = ApLike::new(to, object, Some(id)).await;
+        let undo: ApUndo = like.into();
+
+        log(&format!("UNLIKE\n{undo:#?}"));
+        send_post(outbox,
+                  serde_json::to_string(&undo).unwrap(),
+                  "application/activity+json".to_string()).await
+    }).await
 }
