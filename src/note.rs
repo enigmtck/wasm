@@ -54,8 +54,7 @@ pub struct ApNote {
     pub to: MaybeMultiple<ApAddress>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub published: Option<String>,
+    pub published: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cc: Option<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -125,7 +124,7 @@ impl Default for ApNote {
             kind: ApNoteType::Note,
             to: MaybeMultiple::Multiple(vec![]),
             url: None,
-            published: None,
+            published: Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
             cc: None,
             replies: None,
             attachment: None,
