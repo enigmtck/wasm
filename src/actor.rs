@@ -2,7 +2,7 @@ use serde::{Serialize, Deserialize};
 use wasm_bindgen::prelude::wasm_bindgen;
 use std::fmt::{self, Debug};
 
-use crate::{send_get, ApContext, ApTag, ApAttachment, ApImage, authenticated, EnigmatickState, Profile, ENIGMATICK_STATE};
+use crate::{send_get, ApContext, ApTag, ApAttachment, ApImage, authenticated, EnigmatickState, Profile, ENIGMATICK_STATE, log};
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 #[serde(rename_all = "camelCase")]
@@ -199,6 +199,7 @@ pub async fn get_actor_from_webfinger(webfinger: String) -> Option<String> {
 
     let url = {
         if let Some(username) = authentication {
+            log("AUTHENTICATED ACTOR RETRIEVAL");
             format!("/api/user/{username}/remote/actor?webfinger={webfinger}")
         } else {
             format!("/api/remote/actor?webfinger={webfinger}")
@@ -220,8 +221,32 @@ pub async fn get_actor(id: String) -> Option<String> {
 #[wasm_bindgen]
 pub async fn get_webfinger_from_id(id: String) -> Option<String> {
     let id = urlencoding::encode(&id);
-    let url = format!("/api/remote/webfinger?id={id}");
-    
+
+    let authentication: Option<String> = {
+        if let Ok(state) = (*ENIGMATICK_STATE).try_lock() {
+            if let Some(profile) = state.profile.clone() {
+                if state.is_authenticated() {
+                    Some(profile.username)
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    };
+
+    let url = {
+        if let Some(username) = authentication {
+            log("AUTHENTICATED WEBFINGER RETRIEVAL");
+            format!("/api/user/{username}/remote/webfinger?id={id}")
+        } else {
+            format!("/api/remote/webfinger?id={id}")
+        }
+    };
+
     send_get(url, "application/json".to_string()).await
 }
 
