@@ -81,33 +81,6 @@ pub enum ApTag {
     HashTag(ApHashtag),
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
-pub enum ApAttachmentType {
-    OlmSession,
-    PropertyValue,
-    Document,
-    IdentityProof,
-    Link,
-    #[default]
-    Unknown,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
-#[serde(rename_all = "camelCase")]
-pub struct ApAttachment {
-    #[serde(rename = "type")]
-    pub kind: ApAttachmentType,
-    pub name: Option<String>,
-    pub value: Option<String>,
-    pub hash: Option<String>,
-    pub mutation_of: Option<String>,
-    pub media_type: Option<String>,
-    pub url: Option<String>,
-    pub blurhash: Option<String>,
-    pub width: Option<i32>,
-    pub height: Option<i32>,
-}
-
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(untagged)]
 pub enum ApContext {

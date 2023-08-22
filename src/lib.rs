@@ -12,6 +12,7 @@ use std::fmt::{self, Debug};
 
 pub mod announce;
 pub mod accept;
+pub mod attachment;
 pub mod create;
 pub mod user;
 pub mod collection;
@@ -43,6 +44,7 @@ pub mod undo;
 
 pub use announce::*;
 pub use accept::*;
+pub use attachment::*;
 pub use create::*;
 pub use user::*;
 pub use collection::*;

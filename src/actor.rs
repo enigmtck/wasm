@@ -154,14 +154,31 @@ pub async fn get_remote_resource(
     webfinger: String,
     page: Option<String>,
 ) -> Option<String> {
-    let path = match page {
+    let profile: String = {
+        if let Ok(state) = (*ENIGMATICK_STATE).try_lock() {
+            if let Some(profile) = state.profile.clone() {
+                if state.is_authenticated() {
+                    format!("user/{}/", profile.username)
+                } else {
+                    String::new()
+                }
+            } else {
+                String::new()
+            }
+        } else {
+            String::new()
+        }
+    };
+
+    let url = match page {
         Some(page) => format!(
-            "/api/remote/{resource}?webfinger={webfinger}&page={}",
+            "/api/{profile}remote/{resource}?webfinger={webfinger}&page={}",
             urlencoding::encode(&page)
         ),
-        None => format!("/api/remote/{resource}?webfinger={webfinger}"),
+        None => format!("/api/{profile}remote/{resource}?webfinger={webfinger}"),
     };
-    send_get(path, "application/json".to_string()).await
+    
+    send_get(url, "application/json".to_string()).await
 }
 
 #[wasm_bindgen]
