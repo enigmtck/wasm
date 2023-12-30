@@ -44,94 +44,98 @@ pub struct Profile {
 
 #[wasm_bindgen]
 pub async fn authenticate(username: String,
-                          password: String,
-                          passphrase: String) -> Option<Profile> {
+                          password_str: String) -> Option<Profile> {
 
     #[derive(Serialize, Debug, Clone)]
     struct AuthenticationData {
         username: String,
         password: String,
     }
-    
-    let req = AuthenticationData {
-        username,
-        password,
-    };
 
-    if let Ok(passphrase) = kdf::Password::from_slice(passphrase.as_bytes()) {
-        log("in passphrase");
-        if let Ok(x) = Request::post("/api/user/authenticate").json(&req) {   
-            if let Ok(y) = x.send().await {
-                log("in request");
-                let state = &*ENIGMATICK_STATE.clone();
-                //log(&format!("y\n{:#?}", y.text().await));
-                let user = y.json().await.ok();
-                
-                if let Ok(mut x) = state.try_lock() {
-                    log("in lock");
-                    x.authenticated = true;
+    if let Some(password_hash) = get_hash(password_str.clone()) {
+        let req = AuthenticationData {
+            username,
+            password: encode(password_hash),
+        };
 
-                    log(&format!("user\n{user:#?}"));
-                    let user: Profile = user.clone().unwrap();
-                    x.set_profile(user.clone());
-                    log("after profile");
-                    //x.keystore = Option::from(user.keystore.clone());
-                    log("after keystore");
-                    if let (Some(salt), Some(client_private_key), Some(pickled_account)) = (user.salt, user.client_private_key, user.olm_pickled_account) {
-                        let salt = kdf::Salt::from_slice(&decode(salt).unwrap()).unwrap();
+        if let Ok(password) = kdf::Password::from_slice(password_str.as_bytes()) {
+            log("in passphrase");
+            if let Ok(x) = Request::post("/api/user/authenticate").json(&req) {   
+                if let Ok(y) = x.send().await {
+                    log("in request");
+                    let state = &*ENIGMATICK_STATE.clone();
+                    //log(&format!("y\n{:#?}", y.text().await));
+                    let user = y.json().await.ok();
+                    
+                    if let Ok(mut x) = state.try_lock() {
+                        log("in lock");
+                        x.authenticated = true;
 
-                        if let Ok(derived_key) = kdf::derive_key(&passphrase, &salt, 3, 1<<4, 32) {
-                            log("in derive");
-                            let encoded_derived_key = encode(derived_key.unprotected_as_bytes());
-                            x.set_derived_key(encoded_derived_key);
+                        log(&format!("user\n{user:#?}"));
+                        let user: Profile = user.clone().unwrap();
+                        x.set_profile(user.clone());
+                        log("after profile");
+                        //x.keystore = Option::from(user.keystore.clone());
+                        log("after keystore");
+                        if let (Some(salt), Some(client_private_key), Some(pickled_account)) =
+                            (user.salt, user.client_private_key, user.olm_pickled_account) {
+                            let salt = kdf::Salt::from_slice(&decode(salt).unwrap()).unwrap();
 
-                            if let Ok(decrypted_client_key_pem) =
-                                aead::open(&derived_key,
-                                           &decode(client_private_key)
-                                           .unwrap())
-                            {
-                                log("in decrypted pem");
-                                x.set_client_private_key_pem(
-                                    String::from_utf8(decrypted_client_key_pem).unwrap()
-                                );
+                            if let Ok(derived_key) = kdf::derive_key(&password, &salt, 3, 1<<4, 32) {
+                                log("in derive");
+                                let encoded_derived_key = encode(derived_key.unprotected_as_bytes());
+                                x.set_derived_key(encoded_derived_key);
+
+                                if let Ok(decrypted_client_key_pem) =
+                                    aead::open(&derived_key,
+                                               &decode(client_private_key)
+                                               .unwrap())
+                                {
+                                    log("in decrypted pem");
+                                    x.set_client_private_key_pem(
+                                        String::from_utf8(decrypted_client_key_pem).unwrap()
+                                    );
+                                }
+
+                                if let Ok(decrypted_olm_pickled_account) =
+                                    aead::open(&derived_key,
+                                               &decode(pickled_account)
+                                               .unwrap())
+                                {
+                                    log("in decrypted pickle");
+                                    x.set_olm_pickled_account(String::from_utf8(decrypted_olm_pickled_account)
+                                                              .unwrap());
+                                }
+
+                                // if let Ok(decrypted_olm_sessions) =
+                                //     aead::open(&derived_key,
+                                //                &decode(user.keystore.olm_sessions)
+                                //                .unwrap())
+                                // {
+                                //     log("in decrypted olm_sessions");
+                                //     match String::from_utf8(decrypted_olm_sessions) {
+                                //         Ok(y) => {
+                                //             log(&format!("olm_sessions: {y:#?}"));
+                                //             x.set_olm_sessions(y);
+                                //         },
+                                //         Err(e) => log(&format!("olm_sessions error: {e:#?}"))
+                                //     }           
+                                // }
                             }
-
-                            if let Ok(decrypted_olm_pickled_account) =
-                                aead::open(&derived_key,
-                                           &decode(pickled_account)
-                                           .unwrap())
-                            {
-                                log("in decrypted pickle");
-                                x.set_olm_pickled_account(String::from_utf8(decrypted_olm_pickled_account)
-                                                          .unwrap());
-                            }
-
-                            // if let Ok(decrypted_olm_sessions) =
-                            //     aead::open(&derived_key,
-                            //                &decode(user.keystore.olm_sessions)
-                            //                .unwrap())
-                            // {
-                            //     log("in decrypted olm_sessions");
-                            //     match String::from_utf8(decrypted_olm_sessions) {
-                            //         Ok(y) => {
-                            //             log(&format!("olm_sessions: {y:#?}"));
-                            //             x.set_olm_sessions(y);
-                            //         },
-                            //         Err(e) => log(&format!("olm_sessions error: {e:#?}"))
-                            //     }           
-                            // }
                         }
-                    }
-                };
+                    };
 
-                user
+                    user
+                } else {
+                    Option::None
+                }
             } else {
                 Option::None
             }
         } else {
             Option::None
         }
-    } else {
+    }  else {
         Option::None
     }
 }
@@ -139,8 +143,7 @@ pub async fn authenticate(username: String,
 #[wasm_bindgen]
 pub async fn create_user(username: String,
                          display_name: String,
-                         password: String,
-                         passphrase: String,
+                         password_str: String,
                          olm_identity_public_key: String,
                          olm_pickled_account: String
 ) -> Option<Profile> {
@@ -149,10 +152,10 @@ pub async fn create_user(username: String,
 
     if let (Ok(client_public_key),
             Ok(client_private_key),
-            Ok(passphrase)) =
+            Ok(password)) =
         (key.public_key.to_public_key_pem(LineEnding::default()),
          key.private_key.to_pkcs8_pem(LineEnding::default()),
-         kdf::Password::from_slice(passphrase.as_bytes()))
+         kdf::Password::from_slice(password_str.as_bytes()))
     {
         let olm_identity_key = Some(olm_identity_public_key);
         let client_public_key = Some(client_public_key);
@@ -163,7 +166,8 @@ pub async fn create_user(username: String,
         
         // the example uses 1<<16 (64MiB) for the memory; I'm using 1<<4 (16KiB) for my test machine
         // this should be increased to what is tolerable
-        if let Ok(derived_key) = kdf::derive_key(&passphrase, &salt, 3, 1<<4, 32) {
+        if let (Ok(derived_key), Some(password_hash)) =
+            (kdf::derive_key(&password, &salt, 3, 1<<4, 32), get_hash(password_str)) {
             let salt = Some(encode(&salt));
             let encoded_derived_key = encode(derived_key.unprotected_as_bytes());
 
@@ -178,7 +182,7 @@ pub async fn create_user(username: String,
                     
                     let req = NewUser {
                         username,
-                        password,
+                        password: encode(password_hash),
                         display_name,
                         client_public_key,
                         client_private_key,

@@ -41,6 +41,7 @@ pub mod block;
 pub mod add;
 pub mod remove;
 pub mod undo;
+pub mod olm;
 
 pub use announce::*;
 pub use accept::*;
@@ -73,6 +74,7 @@ pub use block::*;
 pub use add::*;
 pub use remove::*;
 pub use undo::*;
+pub use olm::*;
 
 #[wasm_bindgen]
 extern "C" {

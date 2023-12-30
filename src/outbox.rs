@@ -1,7 +1,7 @@
 use gloo_net::http::Request;
 use wasm_bindgen::prelude::wasm_bindgen;
 
-use crate::{ ApObject, ENIGMATICK_STATE, Profile, log};
+use crate::{ ApObject, ENIGMATICK_STATE, log};
 
 // #[wasm_bindgen]
 // pub async fn get_outbox(username: String, offset: i32, limit: i32) -> Option<String> {

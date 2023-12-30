@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::{ApActivity, ApAnnounce, ApContext, ApFollow, ApLike, ApObject, MaybeReference};
+use crate::{ApActivity, ApAnnounce, ApContext, ApFollow, ApLike, MaybeReference};
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub enum ApUndoType {

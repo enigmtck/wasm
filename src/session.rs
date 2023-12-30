@@ -2,7 +2,7 @@ use base64::encode;
 use serde::{Serialize, Deserialize};
 use wasm_bindgen::prelude::wasm_bindgen;
 
-use crate::{log, authenticated, EnigmatickState, Profile, send_get, decrypt, send_post, ApContext, get_webfinger_from_id, get_actor_from_webfinger, ApActor};
+use crate::{log, authenticated, EnigmatickState, Profile, send_get, decrypt, send_post, ApContext, get_actor_from_webfinger, ApActor};
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub enum ApSessionType {

@@ -2,7 +2,7 @@ use serde::{Serialize, Deserialize};
 use wasm_bindgen::prelude::wasm_bindgen;
 use std::fmt::{self, Debug};
 
-use crate::{send_get, ApContext, ApTag, ApAttachment, ApImage, authenticated, EnigmatickState, Profile, ENIGMATICK_STATE, log};
+use crate::{send_get, ApContext, ApTag, ApAttachment, ApImage, ENIGMATICK_STATE, log};
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 #[serde(rename_all = "camelCase")]

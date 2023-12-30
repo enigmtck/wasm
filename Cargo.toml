@@ -18,7 +18,7 @@ chrono = { version = "0.4", features = ["serde"] }
 gloo-net = { version = "0.2", features = ["json", "eventsource"] }
 serde = { version = "1", features = ["derive"] }
 getrandom = { version = "0.2", features = ["js"] }
-rsa = "0.7"
+rsa = "0.9"
 rand = "0.8"
 sha2 = { version = "0.10", features = ["oid"] }
 base64 = "0.20"
@@ -35,6 +35,7 @@ strum_macros = "0.24"
 urlencoding = "2.1"
 
 futures = "0.3"
+vodozemac = "0.5.0"
 
 [dependencies.web-sys]
 version = "0.3.60"

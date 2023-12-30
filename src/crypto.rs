@@ -1,5 +1,5 @@
 use orion::hash::digest;
-use rsa::signature::{RandomizedSigner, Signature};
+use rsa::signature::{RandomizedSigner, SignatureEncoding};
 use rsa::{pkcs1v15::SigningKey, pkcs8::DecodePrivateKey, RsaPrivateKey, RsaPublicKey};
 use sha2::{Digest, Sha256};
 use wasm_bindgen::prelude::wasm_bindgen;
@@ -93,7 +93,7 @@ pub fn sign(params: SignParams) -> SignResponse {
     if let Ok(x) = state.try_lock() {
         if let (Some(y), Some(profile)) = (&x.client_private_key_pem, &x.profile) {
             let private_key = RsaPrivateKey::from_pkcs8_pem(y).unwrap();
-            let signing_key = SigningKey::<Sha256>::new_with_prefix(private_key);
+            let signing_key = SigningKey::<Sha256>::new(private_key);
 
             let structured_data = {
                 if let Some(digest) = digest.clone() {
@@ -120,7 +120,7 @@ pub fn sign(params: SignParams) -> SignResponse {
                             "keyId=\"{}/user/{}#client-key\",headers=\"(request-target) host date digest\",signature=\"{}\"",
                             x.server_url.clone().unwrap(),
                             profile.username,
-                            base64::encode(signature.as_bytes())),
+                            base64::encode(signature.to_bytes())),
                         date,
                         digest: Option::from(digest)
                     }
@@ -130,7 +130,7 @@ pub fn sign(params: SignParams) -> SignResponse {
                             "keyId=\"{}/user/{}#client-key\",headers=\"(request-target) host date\",signature=\"{}\"",
                             x.server_url.clone().unwrap(),
                             profile.username,
-                            base64::encode(signature.as_bytes())),
+                            base64::encode(signature.to_bytes())),
                         date,
                         digest: Option::None
                     }
