@@ -43,186 +43,127 @@ pub struct Profile {
 }
 
 #[wasm_bindgen]
-pub async fn authenticate(username: String,
-                          password_str: String) -> Option<Profile> {
-
+pub async fn authenticate(username: String, password_str: String) -> Option<Profile> {
     #[derive(Serialize, Debug, Clone)]
     struct AuthenticationData {
         username: String,
         password: String,
     }
 
-    if let Some(password_hash) = get_hash(password_str.clone()) {
-        let req = AuthenticationData {
-            username,
-            password: encode(password_hash),
-        };
+    let password_hash = get_hash(password_str.clone())?;
+    let req = AuthenticationData {
+        username,
+        password: encode(password_hash),
+    };
 
-        if let Ok(password) = kdf::Password::from_slice(password_str.as_bytes()) {
-            log("in passphrase");
-            if let Ok(x) = Request::post("/api/user/authenticate").json(&req) {   
-                if let Ok(y) = x.send().await {
-                    log("in request");
-                    let state = &*ENIGMATICK_STATE.clone();
-                    //log(&format!("y\n{:#?}", y.text().await));
-                    let user = y.json().await.ok();
-                    
-                    if let Ok(mut x) = state.try_lock() {
-                        log("in lock");
-                        x.authenticated = true;
+    let password = kdf::Password::from_slice(password_str.as_bytes()).ok()?;
+    
+    let user = Request::post("/api/user/authenticate")
+        .json(&req)
+        .ok()?
+        .send()
+        .await
+        .ok()?
+        .json::<Profile>()
+        .await
+        .ok()?;
 
-                        log(&format!("user\n{user:#?}"));
-                        let user: Profile = user.clone().unwrap();
-                        x.set_profile(user.clone());
-                        log("after profile");
-                        //x.keystore = Option::from(user.keystore.clone());
-                        log("after keystore");
-                        if let (Some(salt), Some(client_private_key), Some(pickled_account)) =
-                            (user.salt, user.client_private_key, user.olm_pickled_account) {
-                            let salt = kdf::Salt::from_slice(&decode(salt).unwrap()).unwrap();
+    let state = &*ENIGMATICK_STATE.clone();
+    
+    if let Ok(mut x) = state.try_lock() {
+        x.authenticated = true;
+        x.set_profile(user.clone());
 
-                            if let Ok(derived_key) = kdf::derive_key(&password, &salt, 3, 1<<4, 32) {
-                                log("in derive");
-                                let encoded_derived_key = encode(derived_key.unprotected_as_bytes());
-                                x.set_derived_key(encoded_derived_key);
+        if let (Some(salt), Some(client_private_key), Some(pickled_account)) =
+            (user.salt.clone(), user.client_private_key.clone(), user.olm_pickled_account.clone())
+        {
+            let salt = kdf::Salt::from_slice(&decode(salt).ok()?).ok()?;
 
-                                if let Ok(decrypted_client_key_pem) =
-                                    aead::open(&derived_key,
-                                               &decode(client_private_key)
-                                               .unwrap())
-                                {
-                                    log("in decrypted pem");
-                                    x.set_client_private_key_pem(
-                                        String::from_utf8(decrypted_client_key_pem).unwrap()
-                                    );
-                                }
+            if let Ok(derived_key) = kdf::derive_key(&password, &salt, 3, 1 << 4, 32) {
+                let encoded_derived_key = encode(derived_key.unprotected_as_bytes());
+                x.set_derived_key(encoded_derived_key);
 
-                                if let Ok(decrypted_olm_pickled_account) =
-                                    aead::open(&derived_key,
-                                               &decode(pickled_account)
-                                               .unwrap())
-                                {
-                                    log("in decrypted pickle");
-                                    x.set_olm_pickled_account(String::from_utf8(decrypted_olm_pickled_account)
-                                                              .unwrap());
-                                }
-
-                                // if let Ok(decrypted_olm_sessions) =
-                                //     aead::open(&derived_key,
-                                //                &decode(user.keystore.olm_sessions)
-                                //                .unwrap())
-                                // {
-                                //     log("in decrypted olm_sessions");
-                                //     match String::from_utf8(decrypted_olm_sessions) {
-                                //         Ok(y) => {
-                                //             log(&format!("olm_sessions: {y:#?}"));
-                                //             x.set_olm_sessions(y);
-                                //         },
-                                //         Err(e) => log(&format!("olm_sessions error: {e:#?}"))
-                                //     }           
-                                // }
-                            }
-                        }
-                    };
-
-                    user
-                } else {
-                    Option::None
+                if let Ok(decrypted_client_key_pem) =
+                    aead::open(&derived_key, &decode(client_private_key).ok()?)
+                {
+                    x.set_client_private_key_pem(
+                        String::from_utf8(decrypted_client_key_pem).ok()?,
+                    );
                 }
-            } else {
-                Option::None
+
+                if let Ok(decrypted_olm_pickled_account) =
+                    aead::open(&derived_key, &decode(pickled_account).ok()?)
+                {
+                    x.set_olm_pickled_account(
+                        String::from_utf8(decrypted_olm_pickled_account).ok()?,
+                    );
+                }
             }
-        } else {
-            Option::None
         }
-    }  else {
-        Option::None
     }
+
+    Some(user)
 }
 
 #[wasm_bindgen]
-pub async fn create_user(username: String,
-                         display_name: String,
-                         password_str: String,
-                         olm_identity_public_key: String,
-                         olm_pickled_account: String
+pub async fn create_user(
+    username: String,
+    display_name: String,
+    password_str: String,
+    olm_identity_public_key: String,
+    olm_pickled_account: String,
 ) -> Option<Profile> {
-    
     let key = get_key_pair();
 
-    if let (Ok(client_public_key),
-            Ok(client_private_key),
-            Ok(password)) =
-        (key.public_key.to_public_key_pem(LineEnding::default()),
-         key.private_key.to_pkcs8_pem(LineEnding::default()),
-         kdf::Password::from_slice(password_str.as_bytes()))
-    {
-        let olm_identity_key = Some(olm_identity_public_key);
-        let client_public_key = Some(client_public_key);
-        let client_private_key = client_private_key.to_string();
-        let encoded_client_private_key = client_private_key.clone();
-        
-        let salt = kdf::Salt::default();
-        
-        // the example uses 1<<16 (64MiB) for the memory; I'm using 1<<4 (16KiB) for my test machine
-        // this should be increased to what is tolerable
-        if let (Ok(derived_key), Some(password_hash)) =
-            (kdf::derive_key(&password, &salt, 3, 1<<4, 32), get_hash(password_str)) {
-            let salt = Some(encode(&salt));
-            let encoded_derived_key = encode(derived_key.unprotected_as_bytes());
+    let client_public_key = key.public_key.to_public_key_pem(LineEnding::default()).ok()?;
+    let client_private_key = key.private_key.to_pkcs8_pem(LineEnding::default()).ok()?;
+    let password = kdf::Password::from_slice(password_str.as_bytes()).ok()?;
+    let olm_identity_key = Some(olm_identity_public_key);
 
-            let olm_pickled_account_hash = get_hash(olm_pickled_account.clone());
-            
-            if let (Ok(cpk_ciphertext), Ok(olm_ciphertext)) =
-                (aead::seal(&derived_key, client_private_key.as_bytes()),
-                 aead::seal(&derived_key, olm_pickled_account.as_bytes())) {
-                    
-                    let client_private_key = Some(encode(cpk_ciphertext));
-                    let olm_pickled_account = Some(encode(olm_ciphertext));
-                    
-                    let req = NewUser {
-                        username,
-                        password: encode(password_hash),
-                        display_name,
-                        client_public_key,
-                        client_private_key,
-                        olm_pickled_account,
-                        olm_pickled_account_hash,
-                        olm_identity_key,
-                        salt,
-                    };
-                    
-                    if let Ok(x) =
-                        Request::post("/api/user/create").json(&req) {   
-                            if let Ok(y) = x.send().await {
-                                let state = &*ENIGMATICK_STATE.clone();
-                                let user = y.json().await.ok();
-                                
-                                if let Ok(mut x) = state.try_lock() {
-                                    let user: Profile = user.clone().unwrap();
-                                    x.set_profile(user);
-                                    x.set_derived_key(encoded_derived_key);
-                                    // x.keystore = Option::from(user.keystore);
-                                    x.set_client_private_key_pem(encoded_client_private_key);
-                                };
-                                //let user = y.text().await.ok();
+    let salt = kdf::Salt::default();
 
-                                user
-                            } else {
-                                Option::None
-                            }
-                        } else {
-                            Option::None
-                        }
-                } else {
-                    Option::None
-                }
-        } else {
-            Option::None
+    let derived_key = kdf::derive_key(&password, &salt, 3, 1 << 4, 32).ok()?;
+    let password_hash = get_hash(password_str.clone())?;
+    let salt = Some(encode(&salt));
+    let encoded_derived_key = encode(derived_key.unprotected_as_bytes());
+
+    let cpk_ciphertext = aead::seal(&derived_key, client_private_key.as_bytes()).ok()?;
+    let olm_ciphertext = aead::seal(&derived_key, olm_pickled_account.as_bytes()).ok()?;
+
+    let client_private_key = encode(cpk_ciphertext);
+    let olm_pickled_account = encode(olm_ciphertext);
+
+    let olm_pickled_account_hash = get_hash(olm_pickled_account.clone());
+
+    let req = NewUser {
+        username,
+        password: encode(password_hash),
+        display_name,
+        client_public_key: Some(client_public_key),
+        client_private_key: Some(client_private_key.clone()),
+        olm_pickled_account: Some(olm_pickled_account),
+        olm_pickled_account_hash,
+        olm_identity_key,
+        salt,
+    };
+
+    async {
+        let x = Request::post("/api/user/create").json(&req).ok()?;
+        let y = x.send().await.ok()?;
+        let state = &*ENIGMATICK_STATE.clone();
+        let user: Option<Profile> = y.json().await.ok()?;
+
+        if let Some(user) = user.clone() {
+            if let Ok(mut x) = state.try_lock() {
+                x.set_profile(user.clone());
+                x.set_derived_key(encoded_derived_key);
+                x.set_client_private_key_pem(client_private_key.clone());
+            }
         }
-    } else {
-        Option::None
+
+        user
     }
+    .await
 }
 
 #[wasm_bindgen]
