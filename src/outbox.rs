@@ -1,7 +1,7 @@
 use gloo_net::http::Request;
 use wasm_bindgen::prelude::wasm_bindgen;
 
-use crate::{ ApObject, ENIGMATICK_STATE, log};
+use crate::{ ApObject, get_state, log};
 
 // #[wasm_bindgen]
 // pub async fn get_outbox(username: String, offset: i32, limit: i32) -> Option<String> {
@@ -22,9 +22,9 @@ use crate::{ ApObject, ENIGMATICK_STATE, log};
 // }
 
 fn extract_outbox_elements(url: String) -> (Option<String>, Option<String>, Option<String>) {
-    let state = (*ENIGMATICK_STATE).try_lock().ok();
+    let state = get_state();
     
-    let result = state.as_ref().and_then(|state| state.server_url.clone()).and_then(|server_url| {
+    let result = state.server_url.clone().and_then(|server_url| {
         let pattern = format!(r"^{}/user/(.+?)/outbox\??(?:(min|max)=(\d+)&?|(page=true)&?)*$", regex::escape(&server_url));
         let re = regex::Regex::new(&pattern).unwrap();
 

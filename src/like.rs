@@ -36,7 +36,7 @@ pub struct ApLike {
 
 impl ApLike {
     pub async fn new(to: String, object: String, id: Option<String>) -> Self {
-        let state = get_state().await;
+        let state = get_state();
         if let (Some(profile), Some(server_url)) = (state.profile, state.server_url) {
             ApLike {
                 context: None,

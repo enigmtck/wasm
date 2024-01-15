@@ -37,7 +37,7 @@ pub struct ApAnnounce {
 
 impl ApAnnounce {
     pub async fn new(object: String, id: Option<String>) -> Option<Self> {
-        let state = get_state().await;
+        let state = get_state();
         if let (Some(profile), Some(server_url)) = (state.profile, state.server_url) {
             Some(ApAnnounce {
                 context: None,

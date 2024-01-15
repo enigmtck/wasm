@@ -50,7 +50,7 @@ pub async fn authenticate(username: String, password_str: String) -> Option<Prof
         password: String,
     }
 
-    let password_hash = get_hash(password_str.clone())?;
+    let password_hash = get_hash(password_str.clone().into_bytes())?;
     let req = AuthenticationData {
         username,
         password: encode(password_hash),
@@ -123,7 +123,7 @@ pub async fn create_user(
     let salt = kdf::Salt::default();
 
     let derived_key = kdf::derive_key(&password, &salt, 3, 1 << 4, 32).ok()?;
-    let password_hash = get_hash(password_str.clone())?;
+    let password_hash = get_hash(password_str.clone().into_bytes())?;
     let salt = Some(encode(&salt));
     let encoded_derived_key = encode(derived_key.unprotected_as_bytes());
 
@@ -133,7 +133,7 @@ pub async fn create_user(
     let client_private_key = encode(cpk_ciphertext);
     let olm_pickled_account = encode(olm_ciphertext);
 
-    let olm_pickled_account_hash = get_hash(olm_pickled_account.clone());
+    let olm_pickled_account_hash = get_hash(olm_pickled_account.clone().into_bytes());
 
     let req = NewUser {
         username,
@@ -185,7 +185,7 @@ pub async fn upload_avatar(data: &[u8], length: u32, extension: String) {
 
         upload_file(state.server_name.unwrap(), upload, data, length).await;
 
-        Option::None
+        None
     }).await;
 }
 
@@ -198,13 +198,13 @@ pub async fn upload_banner(data: &[u8], length: u32, extension: String) {
 
         upload_file(state.server_name.unwrap(), upload, data, length).await;
 
-        Option::None
+        None
     }).await;
 }
 
 #[wasm_bindgen]
 pub async fn update_password(current: String, updated: String) -> bool {
-    authenticated(move |_state: EnigmatickState, profile: Profile| async move {
+    authenticated(move |state: EnigmatickState, profile: Profile| async move {
         let url = format!("/api/user/{}/password",
                           profile.username);
 
@@ -212,9 +212,14 @@ pub async fn update_password(current: String, updated: String) -> bool {
         struct UpdatePassword {
             current: String,
             updated: String,
+            encrypted_client_private_key: String,
+            encrypted_olm_pickled_account: String,
         }
         
-        let data = serde_json::to_string(&UpdatePassword { current, updated }).unwrap();
+        let encrypted_client_private_key = encrypt(state.client_private_key_pem.clone()?)?;
+        let encrypted_olm_pickled_account = encrypt(state.get_olm_pickled_account()?)?;
+        
+        let data = serde_json::to_string(&UpdatePassword { current, updated, encrypted_client_private_key, encrypted_olm_pickled_account }).unwrap();
         send_post(url, data, "application/json".to_string()).await
     }).await.is_some()
 }
@@ -290,7 +295,6 @@ pub async fn add_one_time_keys(params: OtkUpdateParams) -> Option<String> {
         let data = serde_json::to_string(&params).unwrap();
         log(&format!("{data:#?}"));
         send_post(url, data, "application/json".to_string()).await
-        //Option::None
     }).await
 }
 
@@ -310,22 +314,16 @@ pub async fn get_followers() -> Option<String> {
         let username = profile.username;
         let url = format!("/user/{username}/followers");
         
-        if let Some(text) = send_get(url, "application/activity+json".to_string()).await {
+        if let Some(text) = send_get(None, url, "application/activity+json".to_string()).await {
             if let Ok(ApObject::Collection(object)) = serde_json::from_str(&text) {
-                if let Some(items) = object.items {
-                    Option::from(serde_json::to_string(&items).unwrap())
-                } else if let Some(items) = object.ordered_items {
-                    Option::from(serde_json::to_string(&items).unwrap())
-                } else {
-                    None
-                }
+                object.ordered_items.map(|items| serde_json::to_string(&items).unwrap())
             } else {
                 error(&format!("FAILED TO CONVERT TEXT TO COLLECTION\n{text:#}"));
                 None
             }
         } else {
             error("FAILED TO RETRIEVE FOLLOWERS");
-            Option::None
+            None
         }
     }).await 
 }
@@ -336,22 +334,16 @@ pub async fn get_following() -> Option<String> {
         let username = profile.username;
         let url = format!("/user/{username}/following");
         
-        if let Some(text) = send_get(url, "application/activity+json".to_string()).await {
+        if let Some(text) = send_get(None, url, "application/activity+json".to_string()).await {
             if let Ok(ApObject::Collection(object)) = serde_json::from_str(&text) {
-                if let Some(items) = object.items {
-                    Option::from(serde_json::to_string(&items).unwrap())
-                } else if let Some(items) = object.ordered_items {
-                    Option::from(serde_json::to_string(&items).unwrap())
-                } else {
-                    None
-                }
+                object.ordered_items.map(|items| serde_json::to_string(&items).unwrap())
             } else {
                 error(&format!("FAILED TO CONVERT TEXT TO COLLECTION\n{text:#}"));
                 None
             }
         } else {
             error("FAILED TO RETRIEVE FOLLOWING");
-            Option::None
+            None
         }
     }).await 
 }
@@ -366,7 +358,7 @@ pub async fn get_profile(id: String) -> Option<String> {
     {
         if let Ok(text) = resp.text().await {
             if let Ok(actor) = serde_json::from_str::<ApActor>(&text) {
-                Option::from(serde_json::to_string(&actor).unwrap())
+                Some(serde_json::to_string(&actor).unwrap())
             } else {
                 error(&format!("FAILED TO CONVERT TEXT TO ACTOR\n{text:#}"));
                 None

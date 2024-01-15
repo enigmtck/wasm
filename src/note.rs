@@ -238,7 +238,7 @@ pub async fn get_local_conversation(uuid: String) -> Option<String> {
 pub async fn get_note(id: String) -> Option<String> {
     let path = format!("/api/remote/note?id={}", urlencoding::encode(&id));
     
-    send_get(path, "application/json".to_string()).await
+    send_get(None, path, "application/json".to_string()).await
 }
 
 #[wasm_bindgen]
@@ -271,7 +271,7 @@ pub struct SendParams {
 #[wasm_bindgen]
 impl SendParams {
     pub async fn new() -> SendParams {
-        let state = get_state().await;
+        let state = get_state();
         if let (Some(profile), Some(server_url)) = (state.profile, state.server_url) {
             SendParams {
                 attributed_to: format!("{server_url}/user/{}",
@@ -332,7 +332,7 @@ impl SendParams {
     }
     
     pub fn set_session_data(&mut self, session_data: String) -> Self {
-        self.session_hash = get_hash(session_data.clone());
+        self.session_hash = get_hash(session_data.clone().into_bytes());
         self.session_data = encrypt(session_data);
         self.clone()
     }

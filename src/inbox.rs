@@ -16,25 +16,18 @@ pub async fn get_inbox(offset: i32, limit: i32) -> Option<String> {
             body: Option::None,
             data: Option::None,
             method: Method::Get
-        });
+        })?;
 
-        if let Ok(resp) = Request::get(&inbox)
+        let resp = Request::get(&inbox)
             .header("Enigmatick-Date", &signature.date)
             .header("Signature", &signature.signature)
             .header("Content-Type", "application/activity+json")
-            .send().await
-        {
-            if let Ok(ApObject::Collection(object)) = resp.json().await {
-                if let Some(items) = object.items {
-                    Option::from(serde_json::to_string(&items).unwrap())
-                } else {
-                    Option::None
-                }
-            } else {
-                Option::None
-            }
+            .send().await.ok()?;
+        
+        if let ApObject::Collection(object) = resp.json().await.ok()? {
+            Some(serde_json::to_string(&object.items?).unwrap())
         } else {
-            Option::None
+            None
         }
     }).await
 }

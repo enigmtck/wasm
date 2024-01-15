@@ -37,7 +37,7 @@ pub struct ApDelete {
 
 impl ApDelete {
     pub async fn new(object: String) -> Self {
-        let state = get_state().await;
+        let state = get_state();
         if let (Some(profile), Some(server_url)) = (state.profile, state.server_url) {
             ApDelete {
                 context: None,

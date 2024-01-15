@@ -23,7 +23,7 @@ pub async fn store_to_vault(data: String, remote_actor: String, resolves: String
             pub session: SessionUpdate
         }
 
-        if let (Some(encrypted_session), Some(session_hash)) = (encrypt(session.clone()), get_hash(session)) {
+        if let (Some(encrypted_session), Some(session_hash)) = (encrypt(session.clone()), get_hash(session.into_bytes())) {
             let session = SessionUpdate {
                 session_uuid,
                 encrypted_session,
@@ -68,13 +68,13 @@ pub struct VaultRetrievalItem {
 pub async fn get_vault(offset: i32, limit: i32, actor: String) -> Option<String> {
     log("IN get vault");
     
-    authenticated(move |_state: EnigmatickState, profile: Profile| async move {
+    authenticated(move |_: EnigmatickState, profile: Profile| async move {
         let username = profile.username.clone();
 
         let actor = encode(actor);
         let url = format!("/api/user/{username}/vault?offset={offset}&limit={limit}&actor={actor}");
         
-        if let Some(data) = send_get(url, "application/json".to_string()).await {
+        if let Some(data) = send_get(None, url, "application/json".to_string()).await {
             error(&format!("VAULT RESPONSE\n{:#?}", data));
             // if let Ok(items) = serde_json::from_str::<Vec<VaultRetrievalItem>>(&data) {
             //     Option::from(serde_json::to_string(&items).unwrap())

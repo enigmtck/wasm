@@ -4,10 +4,6 @@ use gloo_net::http::Request;
 use futures::Future;
 use serde::{Serialize, Deserialize};
 use wasm_bindgen::prelude::*;
-use lazy_static::lazy_static;
-use orion::{aead, aead::SecretKey};
-
-use std::sync::{Arc, Mutex};
 use std::fmt::{self, Debug};
 
 pub mod announce;
@@ -91,12 +87,6 @@ extern "C" {
 extern "C" {
     #[wasm_bindgen(js_namespace = Date, js_name = now)]
     fn date_now() -> f64;
-}
-
-lazy_static! {
-    pub static ref ENIGMATICK_STATE: Arc<Mutex<EnigmatickState>> = {
-        Arc::new(Mutex::new(EnigmatickState::new()))
-    };
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -197,82 +187,14 @@ impl From<String> for MaybeReference<String> {
     }
 }
 
-#[wasm_bindgen]
-pub fn decrypt(encoded_data: String) -> Option<String> {
-    let state = &*ENIGMATICK_STATE;
-    let state = { if let Ok(x) = state.try_lock() { Option::from(x.clone()) } else { Option::None }};
-
-    if let Some(state) = state {
-        if let Some(derived_key) = state.derived_key {
-            if let Ok(derived_key) = base64::decode(derived_key) {
-                if let Ok(derived_key) = SecretKey::from_slice(&derived_key) {
-                    if let Ok(decrypted) = aead::open(&derived_key, &base64::decode(encoded_data).unwrap()) {
-                        if let Ok(decrypted) = String::from_utf8(decrypted) {
-                            Some(decrypted)
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    }
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        } else {
-            None
-        }
+pub async fn authenticated<F, Fut>(f: F) -> Option<String> where F: FnOnce(EnigmatickState, Profile) -> Fut, Fut: Future<Output = Option<String>> {
+    let state = get_state();
+    let profile = state.profile.clone()?;
+    
+    if state.is_authenticated() {
+        f(state, profile.clone()).await
     } else {
         None
-    }
-}
-
-pub fn encrypt(data: String) -> Option<String> {
-    let state = &*ENIGMATICK_STATE;
-    let state = { if let Ok(x) = state.try_lock() { Option::from(x.clone()) } else { Option::None }};
-
-    if let Some(state) = state {
-        if let Some(derived_key) = state.derived_key {
-            if let Ok(derived_key) = base64::decode(derived_key) {
-                if let Ok(derived_key) = SecretKey::from_slice(&derived_key) {
-                    if let Ok(encrypted) = aead::seal(&derived_key, data.as_bytes()) {
-                        base64::encode(encrypted).into()
-                    } else {
-                        Option::None
-                    }
-                } else {
-                    Option::None
-                }
-            } else {
-                Option::None
-            }
-        } else {
-            Option::None
-        }
-    } else {
-        Option::None
-    }
-}
-
-pub async fn authenticated<F, Fut>(f: F) -> Option<String> where F: FnOnce(EnigmatickState, Profile) -> Fut, Fut: Future<Output = Option<String>> {
-    let state = &*ENIGMATICK_STATE;
-    let state = { if let Ok(x) = state.try_lock() { Option::from(x.clone()) } else { Option::None }};
-    
-    if let Some(state) = state {
-        if state.is_authenticated() {
-            if let Some(profile) = &state.profile.clone() {
-
-                f(state, profile.clone()).await
-            } else {
-                Option::None
-            }
-        } else {
-            Option::None
-        }
-    } else {
-        Option::None
     }
 }
 
@@ -289,87 +211,61 @@ impl fmt::Display for Method {
 }
 
 pub async fn send_post(url: String, body: String, content_type: String) -> Option<String> {
-    let state = {
-        if let Ok(x) = (*ENIGMATICK_STATE).try_lock() {
-            Option::from(x.clone()) } else { Option::None }
+    
+    let signature = {
+        let state = get_state();
+        
+        sign(SignParams {
+            host: state.server_name.clone()?,
+            request_target: url.clone(),
+            body: Some(body.clone()),
+            data: None,
+            method: Method::Post
+        })?
     };
     
-    if let Some(state) = state {
-        let signature = sign(SignParams {
-            host: state.server_name.unwrap(),
-            request_target: url.clone(),
-            body: Option::from(body.clone()),
-            data: Option::None,
-            method: Method::Post
-        });
-
-        match Request::post(&url)
-            .header("Enigmatick-Date", &signature.date)
-            .header("Digest", &signature.digest.unwrap())
-            .header("Signature", &signature.signature)
-            .header("Content-Type", &content_type)
-            .body(body)
-            .send()
-            .await {
-                Ok(x) => match x.text().await {
-                    Ok(x) => Option::from(x),
-                    Err(_) => {
-                        error("UNABLE TO DECODE RESPONSE");
-                        Option::None
-                    }
-                },
-                Err(_) => {
-                    error("UNABLE TO SEND POST");
-                    Option::None
-                }
-            }
-    } else {
-        error("UNABLE TO RETRIEVE STATE");
-        Option::None
-    }
+    Request::post(&url)
+        .header("Enigmatick-Date", &signature.date)
+        .header("Digest", &signature.digest.unwrap())
+        .header("Signature", &signature.signature)
+        .header("Content-Type", &content_type)
+        .body(body)
+        .send()
+        .await
+        .ok()?
+        .text()
+        .await
+        .ok()
 }
 
-pub async fn send_get(url: String, content_type: String) -> Option<String> {
-    let state = {
-        if let Ok(x) = (*ENIGMATICK_STATE).try_lock() {
-            Option::from(x.clone()) } else { Option::None }
-    };
-    
-    if let Some(state) = state {
-        let signature = sign(SignParams {
-            host: state.server_name.unwrap(),
-            request_target: url.clone(),
-            body: Option::None,
-            data: Option::None,
-            method: Method::Get
-        });
+pub async fn send_get(server_name: Option<String>, url: String, content_type: String) -> Option<String> {
+    let signature = {
+        let state = get_state();
 
-        match Request::get(&url)
+        sign(SignParams {
+            host: server_name.unwrap_or(state.server_name?),
+            request_target: url.clone(),
+            body: None,
+            data: None,
+            method: Method::Get
+        })
+    };
+
+    let mut request = Request::get(&url);
+
+    if let Some(signature) = signature {
+        request = request
             .header("Enigmatick-Date", &signature.date)
-            .header("Signature", &signature.signature)
-            .header("Content-Type", &content_type)
-            .send().await
-        {
-            Ok(x) if x.status() == 200 => match x.text().await {
-                Ok(x) => Option::from(x),
-                Err(e) => {
-                    error(&format!("ERROR PERFORMING GET\n{e:#?}"));
-                    Option::None
-                }
-            },
-            Ok(x) => {
-                error(&format!("ERROR PERFORMING GET\n{x:#?}"));
-                Option::None
-            },
-            Err(e) => {
-                error(&format!("ERROR PERFORMING GET\n{e:#?}"));
-                Option::None
-            }
-        }
-    } else {
-        error("UNABLE TO RETRIEVE STATE");
-        Option::None
+            .header("Signature", &signature.signature);
     }
+    
+    request.header("Content-Type", &content_type)
+        .send()
+        .await
+        .ok()?
+        .text()
+        .await
+        .ok()
 }
 
 pub async fn upload_file(server_name: String, upload: String, data: &[u8], length: u32) -> Option<String> {
@@ -382,7 +278,7 @@ pub async fn upload_file(server_name: String, upload: String, data: &[u8], lengt
         body: None,
         data: Some(Vec::from(data)),
         method: Method::Post
-    });
+    })?;
 
     if let Ok(resp) = Request::post(&upload)
         .header("Enigmatick-Date", &signature.date)
@@ -405,10 +301,8 @@ pub async fn upload_file(server_name: String, upload: String, data: &[u8], lengt
 
 #[wasm_bindgen]
 pub fn get_activity_ap_id_from_uuid(uuid: String) -> Option<String> {
-    let server_name: Option<String> = {
-        if let Ok(x) = (*ENIGMATICK_STATE).try_lock() {
-            x.clone().server_name } else { Option::None }
-    };
+    let state = get_state();
+    let server_name = state.server_name.clone()?;
 
-    server_name.map(|x| format!("https://{}/activities/{}", x, uuid))
+    Some(format!("https://{}/activities/{}", server_name, uuid))
 }

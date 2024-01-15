@@ -45,7 +45,7 @@ pub async fn get_processing_queue() -> Option<String> {
         let url = format!("/api/user/{}/queue",
                             profile.username.clone());
         
-        if let Some(data) = send_get(url, "application/activity+json".to_string()).await {
+        if let Some(data) = send_get(None, url, "application/activity+json".to_string()).await {
             //error(&format!("QUEUE RESPONSE\n{:#?}", data));
             if let Ok(ApObject::Collection(object)) = serde_json::from_str(&data) {
                 Option::from(serde_json::to_string(&object).unwrap())

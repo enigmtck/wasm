@@ -1,9 +1,16 @@
 use std::collections::HashMap;
 
+use lazy_static::lazy_static;
 use serde::{Deserialize, Serialize};
+use std::sync::{Arc, Mutex};
 use wasm_bindgen::prelude::wasm_bindgen;
 
-use crate::{ENIGMATICK_STATE, Profile};
+use crate::Profile;
+
+lazy_static! {
+    pub static ref ENIGMATICK_STATE: Arc<Mutex<EnigmatickState>> =
+        Arc::new(Mutex::new(EnigmatickState::new()));
+}
 
 #[wasm_bindgen(getter_with_clone)]
 #[derive(Default, Clone, Serialize, Deserialize, Debug)]
@@ -18,7 +25,7 @@ pub struct EnigmatickState {
 
     // self-explanatory
     pub authenticated: bool,
-    
+
     // this is stored in state because derivation is expensive
     pub derived_key: Option<String>,
 
@@ -39,7 +46,7 @@ pub struct EnigmatickState {
 
     // this is the decrypted map of user identities to pickled sessions decrypted
     // and decoded from the keystore
-    olm_sessions: Option<HashMap<String, String>>
+    olm_sessions: Option<HashMap<String, String>>,
 }
 
 #[wasm_bindgen]
@@ -65,7 +72,7 @@ impl EnigmatickState {
     pub fn get_server_url(&self) -> Option<String> {
         self.server_url.clone()
     }
-        
+
     pub fn set_derived_key(&mut self, key: String) -> Self {
         self.derived_key = Option::from(key);
         self.clone()
@@ -104,7 +111,8 @@ impl EnigmatickState {
 
     pub fn set_olm_sessions(&mut self, olm_sessions: String) -> Self {
         self.olm_sessions = Option::<HashMap<String, String>>::from(
-            serde_json::from_str::<HashMap<String, String>>(&olm_sessions).unwrap());
+            serde_json::from_str::<HashMap<String, String>>(&olm_sessions).unwrap(),
+        );
         self.clone()
     }
 
@@ -117,10 +125,10 @@ impl EnigmatickState {
             let mut olm_sessions = olm_sessions;
             olm_sessions.insert(ap_id, session);
             self.olm_sessions = Option::from(olm_sessions);
-        } 
+        }
         self.clone()
     }
-    
+
     pub fn get_olm_session(&self, ap_id: String) -> Option<String> {
         if let Some(olm_sessions) = self.olm_sessions.clone() {
             olm_sessions.get(&ap_id).cloned()
@@ -143,7 +151,7 @@ pub fn import_state(data: String) {
     let imported_state: EnigmatickState = serde_json::from_str(&data).unwrap();
 
     let state = &*ENIGMATICK_STATE.clone();
-                
+
     if let Ok(mut x) = state.try_lock() {
         x.set_derived_key(imported_state.derived_key.unwrap());
         x.authenticated = imported_state.authenticated;
@@ -152,11 +160,10 @@ pub fn import_state(data: String) {
         x.set_olm_pickled_account(imported_state.olm_pickled_account.unwrap());
         // x.set_keystore(imported_state.keystore.unwrap());
     };
-
 }
 
 #[wasm_bindgen]
-pub async fn get_state() -> EnigmatickState {
+pub fn get_state() -> EnigmatickState {
     let state = &*ENIGMATICK_STATE;
 
     if let Ok(x) = state.lock() {

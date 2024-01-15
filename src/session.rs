@@ -104,12 +104,12 @@ pub struct OlmSessionResponse {
 pub async fn get_session(id: String) -> Option<String> {
     log("IN get_session");
 
-    authenticated(move |_state: EnigmatickState, profile: Profile| async move {
+    authenticated(move |_: EnigmatickState, profile: Profile| async move {
         let url = format!("/api/user/{}/session/{}",
                           profile.username.clone(),
                           encode(id));
 
-        if let Some(response) = send_get(url,
+        if let Some(response) = send_get(None, url,
                                          "application/json".to_string()).await {
             
             if let Ok(mut session) = serde_json::from_str::<ApSession>(&response) {
@@ -225,10 +225,10 @@ pub async fn send_kex_init(params: KexInitParams) -> bool {
 
 #[wasm_bindgen]
 pub async fn get_sessions() -> Option<String> {
-    authenticated(move |_state: EnigmatickState, profile: Profile| async move {
+    authenticated(move |_: EnigmatickState, profile: Profile| async move {
         let url = format!("/api/user/{}/sessions",
                              profile.username.clone());
         
-        send_get(url, "application/json".to_string()).await
+        send_get(None, url, "application/json".to_string()).await
     }).await
 }

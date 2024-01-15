@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::wasm_bindgen;
 
-use crate::{authenticated, EnigmatickState, Profile, send_post, ApUndo, ApContext, ApObject, ENIGMATICK_STATE};
+use crate::{authenticated, EnigmatickState, Profile, send_post, ApUndo, ApContext, ApObject, get_state};
 
 #[derive(Serialize, Deserialize, Default, Debug, Clone)]
 pub enum ApFollowType {
@@ -24,30 +24,17 @@ pub struct ApFollow {
 
 impl ApFollow {
     fn new(object: String, id: Option<String>) -> Self {
-        // I'm probably doing this badly; I'm trying to appease the compiler
-        // warning me about holding the lock across the await further down
-        let state = &*ENIGMATICK_STATE;
-        let state = {
-            if let Ok(x) = state.try_lock() {
-                Option::from(x.clone())
-            } else {
-                Option::None
-            }
-        };
+        let state = get_state();
 
-        if let Some(state) = state {
-            if let (Some(server_url), Some(profile)) = (state.server_url, state.profile) {
-                let actor = format!("{}/user/{}", server_url, profile.username);
+        if let (Some(server_url), Some(profile)) = (state.server_url, state.profile) {
+            let actor = format!("{}/user/{}", server_url, profile.username);
 
-                ApFollow {
-                    id,
-                    context: Some(ApContext::default()),
-                    kind: ApFollowType::Follow,
-                    actor,
-                    object: ApObject::Plain(object),
-                }
-            } else {
-                ApFollow::default()
+            ApFollow {
+                id,
+                context: Some(ApContext::default()),
+                kind: ApFollowType::Follow,
+                actor,
+                object: ApObject::Plain(object),
             }
         } else {
             ApFollow::default()

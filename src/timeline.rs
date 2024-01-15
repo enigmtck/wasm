@@ -1,31 +1,18 @@
 use gloo_net::http::Request;
 use wasm_bindgen::prelude::wasm_bindgen;
 
-use crate::{authenticated, EnigmatickState, Profile, SignParams, Method, ApObject, error, ENIGMATICK_STATE, send_get};
+use crate::{authenticated, EnigmatickState, Profile, SignParams, Method, ApObject, error, send_get, get_state};
 
 #[wasm_bindgen]
 pub async fn get_timeline(offset: i32, limit: i32) -> Option<String> {
-    let authentication: Option<String> = {
-        if let Ok(state) = (*ENIGMATICK_STATE).try_lock() {
-            if let Some(profile) = state.profile.clone() {
-                if state.is_authenticated() {
-                    Some(profile.username)
-                } else {
-                    None
-                }
-            } else {
-                None
-            }
-        } else {
-            None
-        }
-    };
-
-    if let Some(username) = authentication {
-        authenticated(move |_state: EnigmatickState, _profile: Profile| async move {
+    let state = get_state();
+    
+    if state.authenticated {
+        authenticated(move |_: EnigmatickState, profile: Profile| async move {
+            let username = profile.username;
             let url = format!("/user/{username}/inbox?offset={offset}&limit={limit}");
             
-            if let Some(text) = send_get(url, "application/activity+json".to_string()).await {
+            if let Some(text) = send_get(None, url, "application/activity+json".to_string()).await {
                 if let Ok(ApObject::Collection(object)) = serde_json::from_str(&text) {
                     if let Some(items) = object.items {
                         Option::from(serde_json::to_string(&items).unwrap())
@@ -74,30 +61,28 @@ pub async fn get_conversation(conversation: String, offset: i32, limit: i32) -> 
         let signature = crate::crypto::sign(SignParams {
             host: state.server_name.unwrap(),
             request_target: inbox.clone(),
-            body: Option::None,
-            data: Option::None,
+            body: None,
+            data: None,
             method: Method::Get
-        });
+        })?;
 
-        if let Ok(resp) = Request::get(&inbox)
+        let resp = Request::get(&inbox)
             .header("Enigmatick-Date", &signature.date)
             .header("Signature", &signature.signature)
             .header("Content-Type", "application/activity+json")
-            .send().await
-        {
-            // log(&resp.text().await.unwrap());
-            // Option::None
-            if let Ok(ApObject::Collection(object)) = resp.json().await {
-                if let Some(items) = object.items {
-                    Option::from(serde_json::to_string(&items).unwrap())
-                } else {
-                    Option::None
-                }
-            } else {
-                Option::None
-            }
+            .send()
+            .await
+            .ok()?
+            .json()
+            .await
+            .ok()?;
+        
+        if let ApObject::Collection(object) = resp {
+            object.items.map(|items| {
+                serde_json::to_string(&items).unwrap()
+            })
         } else {
-            Option::None
+            None
         }
     }).await
 }
