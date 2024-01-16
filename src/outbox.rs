@@ -3,24 +3,6 @@ use wasm_bindgen::prelude::wasm_bindgen;
 
 use crate::{ ApObject, get_state, log};
 
-// #[wasm_bindgen]
-// pub async fn get_outbox(username: String, offset: i32, limit: i32) -> Option<String> {
-//     let outbox = format!("/user/{username}/outbox?offset={offset}&limit={limit}");
-
-//     if let Ok(resp) = Request::get(&outbox)
-//         .header("Content-Type", "application/activity+json")
-//         .send().await
-//     {
-//         if let Ok(ApObject::Collection(object)) = resp.json().await {
-//             object.items.map(|items| serde_json::to_string(&items).unwrap())
-//         } else {
-//             None
-//         }
-//     } else {
-//         None
-//     }
-// }
-
 fn extract_outbox_elements(url: String) -> (Option<String>, Option<String>, Option<String>) {
     let state = get_state();
     
@@ -61,19 +43,14 @@ pub async fn get_outbox(url: String) -> Option<String> {
 
     log(&format!("OUTBOX {outbox:#?}"));
 
-    if let Some(outbox) = outbox {
-        if let Ok(resp) = Request::get(&outbox)
-            .header("Content-Type", "application/activity+json")
-            .send().await
-        {
-            if let Ok(ApObject::CollectionPage(object)) = resp.json().await {
-                serde_json::to_string(&object).ok()
-            } else {
-                None
-            }
-        } else {
-            None
-        }
+    let resp = Request::get(&outbox?)
+        .header("Content-Type", "application/activity+json")
+        .send()
+        .await
+        .ok()?;
+    
+    if let Ok(ApObject::CollectionPage(object)) = resp.json().await {
+        serde_json::to_string(&object).ok()
     } else {
         None
     }

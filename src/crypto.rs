@@ -1,11 +1,12 @@
 use orion::hash::digest;
 use orion::{aead, aead::SecretKey};
+use rsa::pkcs1v15::Signature;
 use rsa::signature::{RandomizedSigner, SignatureEncoding};
 use rsa::{pkcs1v15::SigningKey, pkcs8::DecodePrivateKey, RsaPrivateKey, RsaPublicKey};
 use sha2::{Digest, Sha256};
 use wasm_bindgen::prelude::wasm_bindgen;
 
-use crate::{date_now, get_state, Method};
+use crate::{date_now, get_state, EnigmatickState, Method, Profile};
 
 pub struct KeyPair {
     pub private_key: RsaPrivateKey,
@@ -49,93 +50,98 @@ pub struct SignResponse {
     pub digest: Option<String>,
 }
 
-pub fn sign(params: SignParams) -> Option<SignResponse> {
-    // (request-target): post /users/justin/inbox
-    // host: ser.endipito.us
-    // date: Tue, 20 Dec 2022 22:02:48 GMT
-    // digest: sha-256=uus37v4gf3z6ze+jtuyk+8xsT01FhYOi/rOoDfFV1u4=
+fn compute_hash(params: &SignParams) -> Option<String> {
+    let mut hasher = Sha256::new();
 
-    let hash = {
-        let mut hasher = Sha256::new();
-
-        if let Some(body) = params.body {
+    match params {
+        SignParams {
+            body: Some(body), ..
+        } => {
             hasher.update(body.as_bytes());
-            let hashed = base64::encode(hasher.finalize());
-            Some(format!("sha-256={hashed}"))
-        } else if let Some(data) = params.data {
-            hasher.update(data);
-            let hashed = base64::encode(hasher.finalize());
-            Some(format!("sha-256={hashed}"))
-        } else {
-            None
         }
-    };
+        SignParams {
+            data: Some(data), ..
+        } => {
+            hasher.update(data);
+        }
+        _ => return None,
+    }
+    let hashed = base64::encode(hasher.finalize());
+    Some(format!("sha-256={hashed}"))
+}
 
-    // let url = Url::parse(&params.url).unwrap();
-    // let host = url.host().unwrap().to_string();
-    let request_target = format!(
-        "{} {}",
-        params.method.to_string().to_lowercase(),
-        params.request_target
-    );
-
-    let host = params.host;
-
+fn format_http_date_now() -> String {
+    // This seems unnecessarily complex, but the complexity is necessary
+    // because it is relying on a browser (date_now) exported in lib.rs
     fn perf_to_system(amt: f64) -> std::time::SystemTime {
         let secs = (amt as u64) / 1_000;
         let nanos = ((amt as u32) % 1_000) * 1_000_000;
         std::time::UNIX_EPOCH + std::time::Duration::new(secs, nanos)
     }
 
-    let date = httpdate::fmt_http_date(perf_to_system(date_now()));
+    httpdate::fmt_http_date(perf_to_system(date_now()))
+}
+
+fn create_signature(
+    signing_key: &SigningKey<Sha256>,
+    request_target: &str,
+    host: &str,
+    date: &str,
+    hash: &Option<String>,
+) -> Signature {
+    let signed_string = if let Some(hash) = hash {
+        format!("(request-target): {request_target}\nhost: {host}\ndate: {date}\ndigest: {hash}")
+    } else {
+        format!("(request-target): {request_target}\nhost: {host}\ndate: {date}")
+    };
+
+    let mut rng = rand::thread_rng();
+    signing_key.sign_with_rng(&mut rng, signed_string.as_bytes())
+}
+
+fn build_sign_response(
+    signature: Signature,
+    state: &EnigmatickState,
+    profile: &Profile,
+    date: &str,
+    hash: Option<String>,
+) -> SignResponse {
+    let signature_base64 = base64::encode(signature.to_bytes());
+    let key_id = format!(
+        "{}/user/{}#client-key",
+        state.server_url.clone().unwrap(),
+        profile.username
+    );
+    let headers = if hash.is_some() {
+        "\"(request-target) host date digest\""
+    } else {
+        "\"(request-target) host date\""
+    };
+
+    SignResponse {
+        signature: format!("keyId=\"{key_id}\",headers={headers},signature=\"{signature_base64}\""),
+        date: date.to_string(),
+        digest: hash,
+    }
+}
+
+pub fn sign(params: SignParams) -> Option<SignResponse> {
+    let hash = compute_hash(&params);
+    let request_target = format!(
+        "{} {}",
+        params.method.to_string().to_lowercase(),
+        params.request_target
+    );
+    let date = format_http_date_now();
 
     let state = get_state();
-
-    if let (Some(y), Some(profile)) = (&state.client_private_key_pem, &state.profile) {
-        let private_key = RsaPrivateKey::from_pkcs8_pem(y).unwrap();
+    if let (Some(private_key_pem), Some(profile)) = (&state.client_private_key_pem, &state.profile)
+    {
+        let private_key = RsaPrivateKey::from_pkcs8_pem(private_key_pem).unwrap();
         let signing_key = SigningKey::<Sha256>::new(private_key);
+        let signature = create_signature(&signing_key, &request_target, &params.host, &date, &hash);
 
-        let structured_data = {
-            if let Some(hash) = hash.clone() {
-                let signed_string = format!(
-                    "(request-target): {request_target}\nhost: {host}\ndate: {date}\ndigest: {hash}"
-                );
-
-                Some(signed_string)
-            } else {
-                let signed_string =
-                    format!("(request-target): {request_target}\nhost: {host}\ndate: {date}");
-
-                Some(signed_string)
-            }
-        };
-
-        if let Some(structured_data) = structured_data {
-            let mut rng = rand::thread_rng();
-            let signature = signing_key.sign_with_rng(&mut rng, structured_data.as_bytes());
-
-            if let Some(hash) = hash {
-                return Some(SignResponse {
-                    signature: format!(
-                        "keyId=\"{}/user/{}#client-key\",headers=\"(request-target) host date digest\",signature=\"{}\"",
-                        state.server_url.clone().unwrap(),
-                        profile.username,
-                        base64::encode(signature.to_bytes())),
-                    date,
-                    digest: Some(hash)
-                });
-            } else {
-                return Some(SignResponse {
-                    signature: format!(
-                        "keyId=\"{}/user/{}#client-key\",headers=\"(request-target) host date\",signature=\"{}\"",
-                        state.server_url.clone().unwrap(),
-                        profile.username,
-                        base64::encode(signature.to_bytes())),
-                    date,
-                    digest: None
-                });
-            }
-        }
+        return Some(build_sign_response(signature, &state, profile, &date, hash));
     }
 
     None
