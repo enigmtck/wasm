@@ -44,16 +44,13 @@ pub async fn get_processing_queue() -> Option<String> {
     authenticated(move |_state: EnigmatickState, profile: Profile| async move {
         let url = format!("/api/user/{}/queue",
                             profile.username.clone());
-        
-        if let Some(data) = send_get(None, url, "application/activity+json".to_string()).await {
-            //error(&format!("QUEUE RESPONSE\n{:#?}", data));
-            if let Ok(ApObject::Collection(object)) = serde_json::from_str(&data) {
-                Option::from(serde_json::to_string(&object).unwrap())
-            } else {
-                Option::None
-            }
+
+        let data = send_get(None, url, "application/activity+json".to_string()).await?;
+
+        if let ApObject::Collection(object) = serde_json::from_str::<ApObject>(&data).ok()? {
+            Some(serde_json::to_string(&object).ok()?)
         } else {
-            Option::None
+            None
         }
     }).await
 }

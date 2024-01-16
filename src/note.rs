@@ -171,7 +171,7 @@ impl From<SendParams> for ApNote {
             to.extend(params.recipient_ids);
         }
         
-        let mut instrument: Option<ApInstruments> = Option::None;
+        let mut instrument: Option<ApInstruments> = None;
         if let (Some(session), Some(hash)) = (params.session_data, params.session_hash) {
             instrument = Some(ApInstruments::Single(ApInstrument {
                 kind: ApInstrumentType::OlmSession,
@@ -182,11 +182,11 @@ impl From<SendParams> for ApNote {
         }
         
         ApNote {
-            context: Option::from(ApContext::default()),
+            context: Some(ApContext::default()),
             kind: { if params.is_encrypted { ApNoteType::EncryptedNote } else { ApNoteType::Note } },
             to: MaybeMultiple::Multiple(to.iter().map(|x| ApAddress::Address(x.clone())).collect()),
-            cc: Option::from(cc),
-            tag: Option::from(tag),
+            cc: Some(cc),
+            tag: Some(tag),
             attachment: {
                 if let Some(attachments) = params.attachments {
                     if let Ok(attachments) = serde_json::from_str::<Vec<ApAttachment>>(&attachments) {
@@ -209,27 +209,16 @@ impl From<SendParams> for ApNote {
 
 #[wasm_bindgen]
 pub async fn get_local_conversation(uuid: String) -> Option<String> {
-    if let Ok(resp) = Request::get(&format!("/conversation/{uuid}"))
+    let resp = Request::get(&format!("/conversation/{uuid}"))
         .header("Content-Type", "application/activity+json")
-        .send().await
-    {
-        if let Ok(text) = resp.text().await {
-            if let Ok(ApObject::Collection(object)) = serde_json::from_str(&text) {
-                if let Some(items) = object.items {
-                    Option::from(serde_json::to_string(&items).unwrap())
-                } else {
-                    None
-                }
-            } else {
-                error(&format!("FAILED TO CONVERT TEXT TO COLLECTION\n{text:#}"));
-                None
-            }
-        } else {
-            error("FAILED TO DECODE RESPONSE TO TEXT");
-            None
-        }
+        .send().await.ok()?;
+
+    let text = resp.text().await.ok()?;
+    
+    if let Ok(ApObject::Collection(object)) = serde_json::from_str(&text) {
+        object.items.map(|items| serde_json::to_string(&items).unwrap())
     } else {
-        error("FAILED TO SEND REQUEST");
+        error(&format!("FAILED TO CONVERT TEXT TO COLLECTION\n{text:#}"));
         None
     }
 }

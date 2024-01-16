@@ -27,11 +27,7 @@ pub fn get_key_pair() -> KeyPair {
 
 #[wasm_bindgen]
 pub fn get_hash(data: Vec<u8>) -> Option<String> {
-    if let Ok(hash) = digest(&data) {
-        base64::encode(hash).into()
-    } else {
-        None
-    }
+    digest(&data).ok().map(base64::encode)
 }
 
 #[derive(Clone, Debug)]
@@ -72,7 +68,7 @@ fn compute_hash(params: &SignParams) -> Option<String> {
 
 fn format_http_date_now() -> String {
     // This seems unnecessarily complex, but the complexity is necessary
-    // because it is relying on a browser (date_now) exported in lib.rs
+    // because it is relying on a browser function (date_now) exported in lib.rs
     fn perf_to_system(amt: f64) -> std::time::SystemTime {
         let secs = (amt as u64) / 1_000;
         let nanos = ((amt as u32) % 1_000) * 1_000_000;

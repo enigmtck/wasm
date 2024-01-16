@@ -13,8 +13,8 @@ pub async fn get_inbox(offset: i32, limit: i32) -> Option<String> {
         let signature = crate::crypto::sign(SignParams {
             host: state.server_name.unwrap(),
             request_target: inbox.clone(),
-            body: Option::None,
-            data: Option::None,
+            body: None,
+            data: None,
             method: Method::Get
         })?;
 
@@ -23,7 +23,7 @@ pub async fn get_inbox(offset: i32, limit: i32) -> Option<String> {
             .header("Signature", &signature.signature)
             .header("Content-Type", "application/activity+json")
             .send().await.ok()?;
-        
+
         if let ApObject::Collection(object) = resp.json().await.ok()? {
             Some(serde_json::to_string(&object.items?).unwrap())
         } else {

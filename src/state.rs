@@ -56,7 +56,7 @@ impl EnigmatickState {
     }
 
     pub fn set_server_name(&mut self, server_name: String) -> Self {
-        self.server_name = Option::from(server_name);
+        self.server_name = Some(server_name);
         self.clone()
     }
 
@@ -65,7 +65,7 @@ impl EnigmatickState {
     }
 
     pub fn set_server_url(&mut self, server_url: String) -> Self {
-        self.server_url = Option::from(server_url);
+        self.server_url = Some(server_url);
         self.clone()
     }
 
@@ -74,7 +74,7 @@ impl EnigmatickState {
     }
 
     pub fn set_derived_key(&mut self, key: String) -> Self {
-        self.derived_key = Option::from(key);
+        self.derived_key = Some(key);
         self.clone()
     }
 
@@ -83,7 +83,7 @@ impl EnigmatickState {
     }
 
     pub fn set_profile(&mut self, profile: Profile) -> Self {
-        self.profile = Option::from(profile);
+        self.profile = Some(profile);
         self.clone()
     }
 
@@ -92,7 +92,7 @@ impl EnigmatickState {
     }
 
     pub fn set_client_private_key_pem(&mut self, pem: String) -> Self {
-        self.client_private_key_pem = Option::from(pem);
+        self.client_private_key_pem = Some(pem);
         self.clone()
     }
 
@@ -101,7 +101,7 @@ impl EnigmatickState {
     }
 
     pub fn set_olm_pickled_account(&mut self, olm_pickled_account: String) -> Self {
-        self.olm_pickled_account = Option::from(olm_pickled_account);
+        self.olm_pickled_account = Some(olm_pickled_account);
         self.clone()
     }
 
@@ -110,9 +110,8 @@ impl EnigmatickState {
     }
 
     pub fn set_olm_sessions(&mut self, olm_sessions: String) -> Self {
-        self.olm_sessions = Option::<HashMap<String, String>>::from(
-            serde_json::from_str::<HashMap<String, String>>(&olm_sessions).unwrap(),
-        );
+        self.olm_sessions =
+            Some(serde_json::from_str::<HashMap<String, String>>(&olm_sessions).unwrap());
         self.clone()
     }
 
@@ -124,17 +123,13 @@ impl EnigmatickState {
         if let Some(olm_sessions) = self.olm_sessions.clone() {
             let mut olm_sessions = olm_sessions;
             olm_sessions.insert(ap_id, session);
-            self.olm_sessions = Option::from(olm_sessions);
+            self.olm_sessions = Some(olm_sessions);
         }
         self.clone()
     }
 
     pub fn get_olm_session(&self, ap_id: String) -> Option<String> {
-        if let Some(olm_sessions) = self.olm_sessions.clone() {
-            olm_sessions.get(&ap_id).cloned()
-        } else {
-            Option::None
-        }
+        self.olm_sessions.clone()?.get(&ap_id).cloned()
     }
 
     pub fn is_authenticated(&self) -> bool {

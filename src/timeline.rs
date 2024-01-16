@@ -12,42 +12,26 @@ pub async fn get_timeline(offset: i32, limit: i32) -> Option<String> {
             let username = profile.username;
             let url = format!("/user/{username}/inbox?offset={offset}&limit={limit}");
             
-            if let Some(text) = send_get(None, url, "application/activity+json".to_string()).await {
-                if let Ok(ApObject::Collection(object)) = serde_json::from_str(&text) {
-                    if let Some(items) = object.items {
-                        Option::from(serde_json::to_string(&items).unwrap())
-                    } else {
-                        None
-                    }
-                } else {
-                    error(&format!("FAILED TO CONVERT TEXT TO COLLECTION\n{text:#}"));
-                    None
-                }
-            } else {
-                Option::None
-            }
-        }).await
-    } else if let Ok(resp) = Request::get(&format!("/api/timeline?offset={offset}&limit={limit}"))
-        .header("Content-Type", "application/activity+json")
-        .send().await
-    {
-        if let Ok(text) = resp.text().await {
-            if let Ok(ApObject::Collection(object)) = serde_json::from_str(&text) {
-                if let Some(items) = object.items {
-                    Option::from(serde_json::to_string(&items).unwrap())
-                } else {
-                    None
-                }
+            let text = send_get(None, url, "application/activity+json".to_string()).await?;
+            if let ApObject::Collection(object) = serde_json::from_str(&text).ok()? {
+                object.items.map(|items| serde_json::to_string(&items).unwrap())
             } else {
                 error(&format!("FAILED TO CONVERT TEXT TO COLLECTION\n{text:#}"));
                 None
             }
+        }).await
+    } else {
+        let resp = Request::get(&format!("/api/timeline?offset={offset}&limit={limit}"))
+            .header("Content-Type", "application/activity+json")
+            .send().await.ok()?;
+
+        let text = resp.text().await.ok()?;
+        if let ApObject::Collection(object) = serde_json::from_str(&text).ok()? {
+            object.items.map(|items| serde_json::to_string(&items).unwrap())
         } else {
-            error("FAILED TO DECODE RESPONSE TO TEXT");
+            error(&format!("FAILED TO CONVERT TEXT TO COLLECTION\n{text:#}"));
             None
         }
-    } else {
-        None
     }
 }
 

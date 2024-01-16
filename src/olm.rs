@@ -36,68 +36,44 @@ pub fn create_olm_message(
         ap_id
     ));
     if let Some(session) = olm_session {
-        let pickle: Option<SessionPickle> = match serde_json::from_str::<SessionPickle>(&session) {
-            Ok(x) => Option::from(x),
-            Err(e) => {
-                log(&format!("failed to deserialize session pickle: {:#?}", e));
-                Option::None
-            }
-        };
+        let pickle: SessionPickle = serde_json::from_str::<SessionPickle>(&session).ok()?;
 
-        if let Some(pickle) = pickle {
-            let mut session = Session::from_pickle(pickle);
-            let message = serde_json::to_string(&session.encrypt(message)).unwrap();
-            let remote_actor = ap_id;
-            let session = serde_json::to_string(&session.pickle()).unwrap();
-            Option::from(MessageResponse {
-                remote_actor,
-                message,
-                session,
-            })
-        } else {
-            Option::None
-        }
+        let mut session = Session::from_pickle(pickle);
+        let message = serde_json::to_string(&session.encrypt(message)).ok()?;
+        let remote_actor = ap_id;
+        let session = serde_json::to_string(&session.pickle()).ok()?;
+        Some(MessageResponse {
+            remote_actor,
+            message,
+            session,
+        })
     } else if let (Some(identity_key), Some(one_time_key)) = (identity_key, one_time_key) {
         // if there's no pre-existing session and keys are submitted, create a new session
-        if let Ok(one_time_key) = Curve25519PublicKey::from_base64(&one_time_key) {
-            if let (Ok(identity_key), Ok(pickled_account)) = (
-                Curve25519PublicKey::from_base64(&identity_key),
-                serde_json::from_str::<AccountPickle>(&pickled_account),
-            ) {
-                let account = Account::from(pickled_account);
+        let one_time_key = Curve25519PublicKey::from_base64(&one_time_key).ok()?;
+        let identity_key = Curve25519PublicKey::from_base64(&identity_key).ok()?;
+        let pickled_account = serde_json::from_str::<AccountPickle>(&pickled_account).ok()?;
 
-                let mut outbound = account.create_outbound_session(
-                    SessionConfig::version_2(),
-                    identity_key,
-                    one_time_key,
-                );
+        let account = Account::from(pickled_account);
 
-                let message = serde_json::to_string(&outbound.encrypt(message)).unwrap();
+        let mut outbound =
+            account.create_outbound_session(SessionConfig::version_2(), identity_key, one_time_key);
 
-                log(&format!(
-                    "OLM SESSION PICKLE: {:#?}",
-                    serde_json::to_string(&outbound.pickle()).unwrap()
-                ));
-                let remote_actor = ap_id;
-                let session = serde_json::to_string(&outbound.pickle()).unwrap();
+        let message = serde_json::to_string(&outbound.encrypt(message)).ok()?;
 
-                Option::from(MessageResponse {
-                    remote_actor,
-                    message,
-                    session,
-                })
-            } else {
-                log(&format!("FAILED TO DECODE identity_key ({identity_key:#?}) OR pickled_account ({pickled_account:#?})"));
-                Option::None
-            }
-        } else {
-            log(&format!(
-                "FAILED TO DECODE one_time_key ({one_time_key:#?})"
-            ));
-            Option::None
-        }
+        log(&format!(
+            "OLM SESSION PICKLE: {:#?}",
+            serde_json::to_string(&outbound.pickle()).ok()?
+        ));
+        let remote_actor = ap_id;
+        let session = serde_json::to_string(&outbound.pickle()).ok()?;
+
+        Some(MessageResponse {
+            remote_actor,
+            message,
+            session,
+        })
     } else {
-        Option::None
+        None
     }
 }
 
@@ -109,64 +85,42 @@ pub fn decrypt_olm_message(
     identity_key: String,
     olm_session: Option<String>,
 ) -> Option<MessageResponse> {
-    let identity_key = Curve25519PublicKey::from_base64(&identity_key).unwrap();
+    let identity_key = Curve25519PublicKey::from_base64(&identity_key).ok()?;
 
-    let mut account =
-        Account::from(serde_json::from_str::<AccountPickle>(&pickled_account).unwrap());
+    let mut account = Account::from(serde_json::from_str::<AccountPickle>(&pickled_account).ok()?);
 
     if let Some(session) = olm_session {
-        let pickle: Option<SessionPickle> = match serde_json::from_str::<SessionPickle>(&session) {
-            Ok(x) => Option::from(x),
-            Err(e) => {
-                log(&format!("failed to deserialize session pickle: {:#?}", e));
-                Option::None
-            }
-        };
+        let pickle: SessionPickle = serde_json::from_str::<SessionPickle>(&session).ok()?;
 
-        if let Some(pickle) = pickle {
-            let mut session = Session::from_pickle(pickle);
+        let mut session = Session::from_pickle(pickle);
 
-            if let OlmMessage::Normal(m) = serde_json::from_str(&message).unwrap() {
-                match session.decrypt(&m.into()) {
-                    Ok(bytes) => {
-                        let message = String::from_utf8(bytes).unwrap();
-                        let remote_actor = ap_id;
-                        let session = serde_json::to_string(&session.pickle()).unwrap();
-                        Option::from(MessageResponse {
-                            remote_actor,
-                            message,
-                            session,
-                        })
-                    }
-                    Err(e) => {
-                        log(&format!("decryption error\n{:#?}", e));
-                        Option::None
-                    }
-                }
-            } else {
-                Option::None
-            }
-        } else {
-            Option::None
-        }
-    } else if let OlmMessage::PreKey(m) = serde_json::from_str(&message).unwrap() {
-        let inbound = account.create_inbound_session(identity_key, &m);
-
-        if let Ok(inbound) = inbound {
-            let session = serde_json::to_string(&inbound.session.pickle()).unwrap();
+        if let OlmMessage::Normal(m) = serde_json::from_str(&message).ok()? {
+            let bytes = session.decrypt(&m.into()).ok()?;
+            let message = String::from_utf8(bytes).ok()?;
             let remote_actor = ap_id;
-            let message = String::from_utf8(inbound.plaintext).unwrap();
-
-            Option::from(MessageResponse {
+            let session = serde_json::to_string(&session.pickle()).ok()?;
+            Some(MessageResponse {
                 remote_actor,
                 message,
                 session,
             })
         } else {
-            Option::None
+            None
         }
+    } else if let OlmMessage::PreKey(m) = serde_json::from_str(&message).ok()? {
+        let inbound = account.create_inbound_session(identity_key, &m).ok()?;
+
+        let session = serde_json::to_string(&inbound.session.pickle()).ok()?;
+        let remote_actor = ap_id;
+        let message = String::from_utf8(inbound.plaintext).ok()?;
+
+        Some(MessageResponse {
+            remote_actor,
+            message,
+            session,
+        })
     } else {
-        Option::None
+        None
     }
 }
 
@@ -178,9 +132,8 @@ pub struct AccountResponse {
 }
 
 #[wasm_bindgen]
-pub fn get_one_time_keys(pickled_account: String) -> AccountResponse {
-    let mut account =
-        Account::from(serde_json::from_str::<AccountPickle>(&pickled_account).unwrap());
+pub fn get_one_time_keys(pickled_account: String) -> Option<AccountResponse> {
+    let mut account = Account::from(serde_json::from_str::<AccountPickle>(&pickled_account).ok()?);
     account.generate_one_time_keys(2);
     let b64map: HashMap<KeyId, String> = account
         .one_time_keys()
@@ -188,13 +141,13 @@ pub fn get_one_time_keys(pickled_account: String) -> AccountResponse {
         .map(|(k, v)| (k, v.to_base64()))
         .collect();
 
-    let one_time_keys = serde_json::to_string(&b64map).unwrap();
+    let one_time_keys = serde_json::to_string(&b64map).ok()?;
     account.mark_keys_as_published();
-    let pickled_account = serde_json::to_string(&account.pickle()).unwrap();
-    AccountResponse {
+    let pickled_account = serde_json::to_string(&account.pickle()).ok()?;
+    Some(AccountResponse {
         one_time_keys,
         pickled_account,
-    }
+    })
 }
 
 #[wasm_bindgen]

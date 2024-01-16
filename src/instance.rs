@@ -2,7 +2,7 @@ use gloo_net::http::Request;
 use serde::{Serialize, Deserialize};
 use wasm_bindgen::prelude::wasm_bindgen;
 
-use crate::{ENIGMATICK_STATE, error};
+use crate::ENIGMATICK_STATE;
 
 #[wasm_bindgen(getter_with_clone)]
 #[derive(Serialize, Deserialize, Default, Clone)]
@@ -34,23 +34,15 @@ pub struct InstanceInformation {
 #[wasm_bindgen]
 pub async fn load_instance_information() -> Option<InstanceInformation> {
     let url = "/api/v2/instance";
+
+    let resp = Request::get(url).send().await.ok()?;
+    let instance = resp.json::<InstanceInformation>().await.ok()?;
     
-    if let Ok(x) = Request::get(url).send().await {
-        if let Ok(instance) = x.json::<InstanceInformation>().await {
-            if let Ok(mut x) = (*ENIGMATICK_STATE).try_lock() {
-                x.set_server_name(instance.domain.clone());
-                x.set_server_url(instance.url.clone());
-                Option::from(instance)
-            } else {
-                error("UNABLE TO LOCK STATE IN WASM MODULE");
-                None
-            }           
-        } else {
-            error("FAILED TO PARSE RETRIEVED INSTANCE INFORMATION");
-            None
-        }
+    if let Ok(mut state) = (*ENIGMATICK_STATE).try_lock() {
+        state.set_server_name(instance.domain.clone());
+        state.set_server_url(instance.url.clone());
+        Some(instance)
     } else {
-        error("UNABLE TO RETRIEVE INSTANCE INFORMATION");
         None
-    }
+    }           
 }
