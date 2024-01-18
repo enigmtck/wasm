@@ -2,7 +2,7 @@ use gloo_net::http::Request;
 use serde::{Serialize, Deserialize};
 use wasm_bindgen::prelude::wasm_bindgen;
 
-use crate::ENIGMATICK_STATE;
+use crate::update_state;
 
 #[wasm_bindgen(getter_with_clone)]
 #[derive(Serialize, Deserialize, Default, Clone)]
@@ -38,11 +38,11 @@ pub async fn load_instance_information() -> Option<InstanceInformation> {
     let resp = Request::get(url).send().await.ok()?;
     let instance = resp.json::<InstanceInformation>().await.ok()?;
     
-    if let Ok(mut state) = (*ENIGMATICK_STATE).try_lock() {
+    update_state(|state| {
         state.set_server_name(instance.domain.clone());
         state.set_server_url(instance.url.clone());
-        Some(instance)
-    } else {
-        None
-    }           
+        Ok(())
+    }).ok();
+    
+    Some(instance)
 }

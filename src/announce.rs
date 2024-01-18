@@ -1,5 +1,6 @@
 use std::fmt::{self, Debug};
 
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::wasm_bindgen;
 
@@ -32,6 +33,7 @@ pub struct ApAnnounce {
     pub to: MaybeMultiple<ApAddress>,
     pub cc: Option<MaybeMultiple<ApAddress>>,
     pub id: Option<String>,
+    pub published: String,
     pub object: String,
 }
 
@@ -48,6 +50,7 @@ impl ApAnnounce {
                 object,
                 to: MaybeMultiple::Multiple(vec![ApAddress::get_public()]),
                 cc: None,
+                published: Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
             })
         } else {
             None

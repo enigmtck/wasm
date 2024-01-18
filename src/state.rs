@@ -1,6 +1,9 @@
 use std::collections::HashMap;
+use std::error::Error;
 
+use base64::{decode, encode};
 use lazy_static::lazy_static;
+use orion::kdf;
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 use wasm_bindgen::prelude::wasm_bindgen;
@@ -8,7 +11,7 @@ use wasm_bindgen::prelude::wasm_bindgen;
 use crate::Profile;
 
 lazy_static! {
-    pub static ref ENIGMATICK_STATE: Arc<Mutex<EnigmatickState>> =
+    static ref ENIGMATICK_STATE: Arc<Mutex<EnigmatickState>> =
         Arc::new(Mutex::new(EnigmatickState::new()));
 }
 
@@ -166,4 +169,38 @@ pub fn get_state() -> EnigmatickState {
     } else {
         EnigmatickState::default()
     }
+}
+
+pub fn update_state<F>(update_fn: F) -> Result<String, Box<dyn Error>>
+where
+    F: FnOnce(&mut EnigmatickState) -> Result<(), Box<dyn Error>>,
+{
+    let state = &*ENIGMATICK_STATE;
+
+    let mut state = state.lock().map_err(|e| e.to_string())?;
+    update_fn(&mut state)?;
+
+    Ok(true.to_string())
+}
+
+pub fn update_state_password(password: String) -> Result<String, Box<dyn Error>> {
+    update_state(|state| {
+        let salt = kdf::Salt::from_slice(&decode(
+            state
+                .profile
+                .as_ref()
+                .ok_or("Missing profile")?
+                .salt
+                .as_ref()
+                .ok_or("Missing salt")?,
+        )?)?;
+        let password = kdf::Password::from_slice(password.as_bytes())?;
+
+        if let Ok(derived_key) = kdf::derive_key(&password, &salt, 3, 1 << 4, 32) {
+            let encoded_derived_key = encode(derived_key.unprotected_as_bytes());
+            state.set_derived_key(encoded_derived_key);
+        }
+
+        Ok(())
+    })
 }

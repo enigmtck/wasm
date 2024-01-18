@@ -1,9 +1,12 @@
+use base64::{decode, encode};
 use orion::hash::digest;
+use orion::kdf;
 use orion::{aead, aead::SecretKey};
 use rsa::pkcs1v15::Signature;
 use rsa::signature::{RandomizedSigner, SignatureEncoding};
 use rsa::{pkcs1v15::SigningKey, pkcs8::DecodePrivateKey, RsaPrivateKey, RsaPublicKey};
 use sha2::{Digest, Sha256};
+use std::error::Error;
 use wasm_bindgen::prelude::wasm_bindgen;
 
 use crate::{date_now, get_state, EnigmatickState, Method, Profile};
@@ -143,24 +146,45 @@ pub fn sign(params: SignParams) -> Option<SignResponse> {
     None
 }
 
-#[wasm_bindgen]
-pub fn decrypt(encoded_data: String) -> Option<String> {
-    let state = get_state();
-    let derived_key = state.derived_key.clone()?;
-    let decoded_key = base64::decode(derived_key).ok()?;
-    let secret_key = SecretKey::from_slice(&decoded_key).ok()?;
-    let decrypted = aead::open(&secret_key, &base64::decode(encoded_data).unwrap()).ok()?;
-    let decrypted_str = String::from_utf8(decrypted).ok()?;
-
-    Some(decrypted_str)
+pub fn encode_derived_key(derived_key: &SecretKey) -> String {
+    encode(derived_key.unprotected_as_bytes())
 }
 
-pub fn encrypt(data: String) -> Option<String> {
-    let state = get_state();
-    let derived_key = state.derived_key.clone()?;
-    let decoded_key = base64::decode(derived_key).ok()?;
-    let secret_key = SecretKey::from_slice(&decoded_key).ok()?;
-    let encrypted = aead::seal(&secret_key, data.as_bytes()).ok()?;
+pub fn derive_key(password_str: String, encoded_salt: String) -> Result<SecretKey, Box<dyn Error>> {
+    let salt = kdf::Salt::from_slice(&decode(encoded_salt)?)?;
+    let password = kdf::Password::from_slice(password_str.as_bytes())?;
 
-    Some(base64::encode(encrypted))
+    Ok(kdf::derive_key(&password, &salt, 3, 1 << 4, 32)?)
+}
+
+pub fn decrypt(
+    derived_key: Option<String>,
+    encoded_data: String,
+) -> Result<String, Box<dyn Error>> {
+    let derived_key = derived_key.unwrap_or(
+        get_state()
+            .derived_key
+            .clone()
+            .ok_or("derived_key missing")?,
+    );
+    let decoded_key = base64::decode(derived_key)?;
+    let secret_key = SecretKey::from_slice(&decoded_key)?;
+    let decrypted = aead::open(&secret_key, &base64::decode(encoded_data).unwrap())?;
+    let decrypted_str = String::from_utf8(decrypted)?;
+
+    Ok(decrypted_str)
+}
+
+pub fn encrypt(derived_key: Option<String>, data: String) -> Result<String, Box<dyn Error>> {
+    let derived_key = derived_key.unwrap_or(
+        get_state()
+            .derived_key
+            .clone()
+            .ok_or("derived_key missing")?,
+    );
+    let decoded_key = base64::decode(derived_key)?;
+    let secret_key = SecretKey::from_slice(&decoded_key)?;
+    let encrypted = aead::seal(&secret_key, data.as_bytes())?;
+
+    Ok(base64::encode(encrypted))
 }

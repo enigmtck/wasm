@@ -23,7 +23,7 @@ pub async fn store_to_vault(data: String, remote_actor: String, resolves: String
             pub session: SessionUpdate
         }
 
-        if let (Some(encrypted_session), Some(session_hash)) = (encrypt(session.clone()), get_hash(session.into_bytes())) {
+        if let (Ok(encrypted_session), Some(session_hash)) = (encrypt(None, session.clone()), get_hash(session.into_bytes())) {
             let session = SessionUpdate {
                 session_uuid,
                 encrypted_session,
@@ -34,7 +34,7 @@ pub async fn store_to_vault(data: String, remote_actor: String, resolves: String
             let url = format!("/api/user/{}/vault",
                               profile.username.clone());
 
-            if let Some(data) = encrypt(data) {
+            if let Ok(data) = encrypt(None, data) {
                 if send_post(url,
                              serde_json::to_string(&VaultStorageRequest {
                                  data,

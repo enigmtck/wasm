@@ -322,7 +322,7 @@ impl SendParams {
     
     pub fn set_session_data(&mut self, session_data: String) -> Self {
         self.session_hash = get_hash(session_data.clone().into_bytes());
-        self.session_data = encrypt(session_data);
+        self.session_data = encrypt(None, session_data).ok();
         self.clone()
     }
 

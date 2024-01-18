@@ -124,7 +124,7 @@ pub async fn get_session(id: String) -> Option<String> {
                     ApInstruments::Multiple(instruments) => {
                         for mut instrument in instruments {
                             if instrument.kind == ApInstrumentType::OlmSession {
-                                if let Some(decrypted) = decrypt(instrument.clone().content) {
+                                if let Ok(decrypted) = decrypt(None, instrument.clone().content) {
                                     instrument.content = decrypted.clone();
                                     session_pickle = Some(decrypted);
                                 }
@@ -135,7 +135,7 @@ pub async fn get_session(id: String) -> Option<String> {
                     },
                     ApInstruments::Single(mut instrument) => {
                         if instrument.kind == ApInstrumentType::OlmSession {
-                                if let Some(decrypted) = decrypt(instrument.clone().content) {
+                                if let Ok(decrypted) = decrypt(None, instrument.clone().content) {
                                     instrument.content = decrypted;
                                 }
                             }

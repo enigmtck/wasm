@@ -224,18 +224,17 @@ pub async fn send_post(url: String, body: String, content_type: String) -> Optio
         })?
     };
     
-    Request::post(&url)
-        .header("Enigmatick-Date", &signature.date)
-        .header("Digest", &signature.digest.unwrap())
-        .header("Signature", &signature.signature)
-        .header("Content-Type", &content_type)
-        .body(body)
-        .send()
-        .await
-        .ok()?
-        .text()
-        .await
-        .ok()
+    Some(Request::post(&url)
+         .header("Enigmatick-Date", &signature.date)
+         .header("Digest", &signature.digest.unwrap())
+         .header("Signature", &signature.signature)
+         .header("Content-Type", &content_type)
+         .body(body)
+         .send()
+         .await
+         .ok()?
+         .status()
+         .to_string())
 }
 
 pub async fn send_get(server_name: Option<String>, url: String, content_type: String) -> Option<String> {

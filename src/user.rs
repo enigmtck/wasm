@@ -1,13 +1,13 @@
 use std::collections::HashMap;
 
-use base64::{decode, encode};
+use base64::encode;
 use gloo_net::http::Request;
 use orion::{aead, kdf};
 use rsa::pkcs8::{EncodePublicKey, LineEnding, EncodePrivateKey};
 use serde::{Serialize, Deserialize};
 use wasm_bindgen::prelude::wasm_bindgen;
 
-use crate::{authenticated, EnigmatickState, upload_file, log, ENIGMATICK_STATE, get_key_pair, send_post, encrypt, get_hash, send_get, ApObject, error, ApActor};
+use crate::{authenticated, EnigmatickState, upload_file, log, get_key_pair, send_post, encrypt, get_hash, send_get, ApObject, error, ApActor, update_state_password, derive_key, encode_derived_key, decrypt, update_state, get_state};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct NewUser {
@@ -55,8 +55,6 @@ pub async fn authenticate(username: String, password_str: String) -> Option<Prof
         username,
         password: encode(password_hash),
     };
-
-    let password = kdf::Password::from_slice(password_str.as_bytes()).ok()?;
     
     let user = Request::post("/api/user/authenticate")
         .json(&req)
@@ -68,38 +66,34 @@ pub async fn authenticate(username: String, password_str: String) -> Option<Prof
         .await
         .ok()?;
 
-    let state = &*ENIGMATICK_STATE.clone();
-    
-    if let Ok(mut x) = state.try_lock() {
-        x.authenticated = true;
-        x.set_profile(user.clone());
+    update_state(|state| {
+        state.authenticated = true;
+        state.set_profile(user.clone());
+        Ok(())
+    }).ok()?;
 
-        if let (Some(salt), Some(client_private_key), Some(pickled_account)) =
-            (user.salt.clone(), user.client_private_key.clone(), user.olm_pickled_account.clone())
-        {
-            let salt = kdf::Salt::from_slice(&decode(salt).ok()?).ok()?;
+    if let (Some(salt), Some(client_private_key), Some(pickled_account)) =
+        (user.salt.clone(), user.client_private_key.clone(), user.olm_pickled_account.clone())
+    {
+        let derived_key = derive_key(password_str, salt).ok()?;
+        let encoded_derived_key = encode_derived_key(&derived_key);
 
-            if let Ok(derived_key) = kdf::derive_key(&password, &salt, 3, 1 << 4, 32) {
-                let encoded_derived_key = encode(derived_key.unprotected_as_bytes());
-                x.set_derived_key(encoded_derived_key);
+        update_state(|state| {
+            state.set_derived_key(encoded_derived_key.clone());
+            Ok(())
+        }).ok()?;
 
-                if let Ok(decrypted_client_key_pem) =
-                    aead::open(&derived_key, &decode(client_private_key).ok()?)
-                {
-                    x.set_client_private_key_pem(
-                        String::from_utf8(decrypted_client_key_pem).ok()?,
-                    );
-                }
+        let client_private_key = decrypt(Some(encoded_derived_key.clone()), client_private_key).ok()?;
+        update_state(|state| {
+            state.set_client_private_key_pem(client_private_key);
+            Ok(())
+        }).ok()?;
 
-                if let Ok(decrypted_olm_pickled_account) =
-                    aead::open(&derived_key, &decode(pickled_account).ok()?)
-                {
-                    x.set_olm_pickled_account(
-                        String::from_utf8(decrypted_olm_pickled_account).ok()?,
-                    );
-                }
-            }
-        }
+        let pickled_account = decrypt(Some(encoded_derived_key), pickled_account).ok()?;
+        update_state(|state| {
+            state.set_olm_pickled_account(pickled_account);
+            Ok(())
+        }).ok()?;
     }
 
     Some(user)
@@ -150,15 +144,15 @@ pub async fn create_user(
     async {
         let x = Request::post("/api/user/create").json(&req).ok()?;
         let y = x.send().await.ok()?;
-        let state = &*ENIGMATICK_STATE.clone();
         let user: Option<Profile> = y.json().await.ok()?;
 
         if let Some(user) = user.clone() {
-            if let Ok(mut x) = state.try_lock() {
-                x.set_profile(user.clone());
-                x.set_derived_key(encoded_derived_key);
-                x.set_client_private_key_pem(client_private_key.clone());
-            }
+            update_state(|state| {
+                state.set_profile(user.clone());
+                state.set_derived_key(encoded_derived_key);
+                state.set_client_private_key_pem(client_private_key.clone());
+                Ok(())
+            }).ok();
         }
 
         user
@@ -203,11 +197,17 @@ pub async fn upload_banner(data: &[u8], length: u32, extension: String) {
 }
 
 #[wasm_bindgen]
-pub async fn update_password(current: String, updated: String) -> bool {
+pub async fn update_password(current_str: String, updated_str: String) -> bool {
     authenticated(move |state: EnigmatickState, profile: Profile| async move {
         let url = format!("/api/user/{}/password",
                           profile.username);
 
+        let current_hash = get_hash(current_str.clone().into_bytes())?;
+        let updated_hash = get_hash(updated_str.clone().into_bytes())?;
+        
+        let current = encode(current_hash);
+        let updated = encode(updated_hash);
+        
         #[derive(Serialize)]
         struct UpdatePassword {
             current: String,
@@ -215,12 +215,24 @@ pub async fn update_password(current: String, updated: String) -> bool {
             encrypted_client_private_key: String,
             encrypted_olm_pickled_account: String,
         }
-        
-        let encrypted_client_private_key = encrypt(state.client_private_key_pem.clone()?)?;
-        let encrypted_olm_pickled_account = encrypt(state.get_olm_pickled_account()?)?;
+
+        let encoded_derived_key = encode_derived_key(&derive_key(updated_str.clone(),
+                                                                 state.profile.clone()?.salt?).ok()?); 
+        let encrypted_client_private_key = encrypt(Some(encoded_derived_key.clone()),
+                                                   state.client_private_key_pem.clone()?).ok()?;
+        let encrypted_olm_pickled_account = encrypt(Some(encoded_derived_key.clone()),
+                                                    state.get_olm_pickled_account()?).ok()?;
         
         let data = serde_json::to_string(&UpdatePassword { current, updated, encrypted_client_private_key, encrypted_olm_pickled_account }).unwrap();
-        send_post(url, data, "application/json".to_string()).await
+
+        send_post(url, data, "application/json".to_string()).await.and_then(
+            |resp| {
+                if resp == "200" {
+                    update_state_password(updated_str.clone()).ok()
+                } else {
+                    None
+                }
+            })
     }).await.is_some()
 }
 
@@ -260,7 +272,7 @@ impl OtkUpdateParams {
     }
 
     pub fn set_account(&mut self, account: String) -> Self {
-        self.account = encrypt(account).expect("ACCOUNT ENCRYPTION FAILED");
+        self.account = encrypt(None, account).expect("ACCOUNT ENCRYPTION FAILED");
         
         self.clone()
     }
@@ -374,17 +386,7 @@ pub async fn get_profile(id: String) -> Option<String> {
 
 #[wasm_bindgen]
 pub async fn get_profile_by_username(username: String) -> Option<String> {
-    let server_url = {
-        if let Ok(state) = (*ENIGMATICK_STATE).try_lock() {
-            state.server_url.clone()
-        } else {
-            None
-        }
-    };
+    let server_url = get_state().server_url.clone()?;
 
-    if let Some(server_url) = server_url {
-        get_profile(format!("{server_url}/user/{username}")).await
-    } else {
-        None
-    }
+    get_profile(format!("{server_url}/user/{username}")).await
 }
