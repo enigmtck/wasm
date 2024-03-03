@@ -1,16 +1,15 @@
 use gloo_net::http::Request;
 use wasm_bindgen::prelude::wasm_bindgen;
-
 use crate::{authenticated, EnigmatickState, Profile, SignParams, Method, ApObject, error, send_get, get_state};
 
 #[wasm_bindgen]
-pub async fn get_timeline(offset: i32, limit: i32) -> Option<String> {
+pub async fn get_timeline(offset: i32, limit: i32, view: String) -> Option<String> {
     let state = get_state();
     
     if state.authenticated {
         authenticated(move |_: EnigmatickState, profile: Profile| async move {
             let username = profile.username;
-            let url = format!("/user/{username}/inbox?offset={offset}&limit={limit}");
+            let url = format!("/user/{username}/inbox?offset={offset}&limit={limit}&view={view}");
             
             let text = send_get(None, url, "application/activity+json".to_string()).await?;
             if let ApObject::Collection(object) = serde_json::from_str(&text).ok()? {
@@ -21,7 +20,7 @@ pub async fn get_timeline(offset: i32, limit: i32) -> Option<String> {
             }
         }).await
     } else {
-        let resp = Request::get(&format!("/api/timeline?offset={offset}&limit={limit}"))
+        let resp = Request::get(&format!("/api/timeline?offset={offset}&limit={limit}&view=global"))
             .header("Content-Type", "application/activity+json")
             .send().await.ok()?;
 

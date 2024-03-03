@@ -346,47 +346,29 @@ pub async fn get_following() -> Option<String> {
         let username = profile.username;
         let url = format!("/user/{username}/following");
         
-        if let Some(text) = send_get(None, url, "application/activity+json".to_string()).await {
-            if let Ok(ApObject::Collection(object)) = serde_json::from_str(&text) {
-                object.ordered_items.map(|items| serde_json::to_string(&items).unwrap())
-            } else {
-                error(&format!("FAILED TO CONVERT TEXT TO COLLECTION\n{text:#}"));
-                None
-            }
+        let text = send_get(None, url, "application/activity+json".to_string()).await?;
+        
+        if let ApObject::Collection(object) = serde_json::from_str(&text).ok()? {
+            object.ordered_items.map(|items| serde_json::to_string(&items).unwrap())
         } else {
-            error("FAILED TO RETRIEVE FOLLOWING");
             None
         }
     }).await 
 }
 
-// because of CORS, this should only work for id values that correspond to local URLs
-#[wasm_bindgen]
-pub async fn get_profile(id: String) -> Option<String> {
-    if let Ok(resp) = Request::get(&id.to_string())
-        .header("Content-Type", "application/activity+json")
-        .header("Accept", "application/activity+json")
-        .send().await
-    {
-        if let Ok(text) = resp.text().await {
-            if let Ok(actor) = serde_json::from_str::<ApActor>(&text) {
-                Some(serde_json::to_string(&actor).unwrap())
-            } else {
-                error(&format!("FAILED TO CONVERT TEXT TO ACTOR\n{text:#}"));
-                None
-            }
-        } else {
-            error("FAILED TO DECODE RESPONSE TO TEXT");
-            None
-        }
-    } else {
-        None
-    }
-}
-
 #[wasm_bindgen]
 pub async fn get_profile_by_username(username: String) -> Option<String> {
     let server_url = get_state().server_url.clone()?;
-
-    get_profile(format!("{server_url}/user/{username}")).await
+    
+    let resp = Request::get(&format!("{server_url}/user/{username}"))
+        .header("Content-Type", "application/activity+json")
+        .header("Accept", "application/activity+json")
+        .send().await.ok()?;
+    
+    let text = resp.text().await.ok()?;
+        
+    let actor = serde_json::from_str::<ApActor>(&text).ok()?;
+    
+    Some(serde_json::to_string(&actor).unwrap())
 }
+
