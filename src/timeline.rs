@@ -39,6 +39,7 @@ pub async fn get_conversation(conversation: String, offset: i32, limit: i32) -> 
     authenticated(move |state: EnigmatickState, profile: Profile| async move {
         let username = profile.username.clone();
         
+        let conversation = urlencoding::encode(&conversation).to_string();
         let inbox = format!("/api/user/{username}/conversation?conversation={conversation}&offset={offset}&limit={limit}");
         
         let signature = crate::crypto::sign(SignParams {
