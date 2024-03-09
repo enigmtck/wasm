@@ -1,4 +1,4 @@
-use base64::encode;
+use base64::{engine::general_purpose, engine::Engine as _};
 use serde::{Serialize, Deserialize};
 use wasm_bindgen::prelude::wasm_bindgen;
 
@@ -107,7 +107,7 @@ pub async fn get_session(id: String) -> Option<String> {
     authenticated(move |_: EnigmatickState, profile: Profile| async move {
         let url = format!("/api/user/{}/session/{}",
                           profile.username.clone(),
-                          encode(id));
+                          general_purpose::STANDARD.encode(id));
 
         if let Some(response) = send_get(None, url,
                                          "application/json".to_string()).await {

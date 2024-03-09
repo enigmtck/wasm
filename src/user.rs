@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use base64::encode;
+use base64::{engine::general_purpose, engine::Engine as _};
 use gloo_net::http::Request;
 use orion::{aead, kdf};
 use rsa::pkcs8::{EncodePublicKey, LineEnding, EncodePrivateKey};
@@ -53,7 +53,7 @@ pub async fn authenticate(username: String, password_str: String) -> Option<Prof
     let password_hash = get_hash(password_str.clone().into_bytes())?;
     let req = AuthenticationData {
         username,
-        password: encode(password_hash),
+        password: general_purpose::STANDARD.encode(password_hash),
     };
     
     let user = Request::post("/api/user/authenticate")
@@ -118,20 +118,20 @@ pub async fn create_user(
 
     let derived_key = kdf::derive_key(&password, &salt, 3, 1 << 4, 32).ok()?;
     let password_hash = get_hash(password_str.clone().into_bytes())?;
-    let salt = Some(encode(&salt));
-    let encoded_derived_key = encode(derived_key.unprotected_as_bytes());
+    let salt = Some(general_purpose::STANDARD.encode(&salt));
+    let encoded_derived_key = general_purpose::STANDARD.encode(derived_key.unprotected_as_bytes());
 
     let cpk_ciphertext = aead::seal(&derived_key, client_private_key.as_bytes()).ok()?;
     let olm_ciphertext = aead::seal(&derived_key, olm_pickled_account.as_bytes()).ok()?;
 
-    let client_private_key = encode(cpk_ciphertext);
-    let olm_pickled_account = encode(olm_ciphertext);
+    let client_private_key = general_purpose::STANDARD.encode(cpk_ciphertext);
+    let olm_pickled_account = general_purpose::STANDARD.encode(olm_ciphertext);
 
     let olm_pickled_account_hash = get_hash(olm_pickled_account.clone().into_bytes());
 
     let req = NewUser {
         username,
-        password: encode(password_hash),
+        password: general_purpose::STANDARD.encode(password_hash),
         display_name,
         client_public_key: Some(client_public_key),
         client_private_key: Some(client_private_key.clone()),
@@ -205,8 +205,8 @@ pub async fn update_password(current_str: String, updated_str: String) -> bool {
         let current_hash = get_hash(current_str.clone().into_bytes())?;
         let updated_hash = get_hash(updated_str.clone().into_bytes())?;
         
-        let current = encode(current_hash);
-        let updated = encode(updated_hash);
+        let current = general_purpose::STANDARD.encode(current_hash);
+        let updated = general_purpose::STANDARD.encode(updated_hash);
         
         #[derive(Serialize)]
         struct UpdatePassword {

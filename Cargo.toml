@@ -21,7 +21,7 @@ getrandom = { version = "0.2", features = ["js"] }
 rsa = "0.9"
 rand = "0.8"
 sha2 = { version = "0.10", features = ["oid"] }
-base64 = "0.20"
+base64 = "0.22"
 uuid = { version = "1.2", features = ["v4"] }
 orion = "0.17"
 serde_json = "1.0"

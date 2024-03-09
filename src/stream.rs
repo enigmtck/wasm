@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::wasm_bindgen;
 
-use crate::{authenticated, EnigmatickState, Profile, send_post, log};
+use crate::{authenticated, EnigmatickState, Profile, send_post};
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
 pub struct StreamAuthorization {

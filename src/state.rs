@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::error::Error;
 
-use base64::{decode, encode};
+use base64::{engine::general_purpose, engine::Engine as _};
 use lazy_static::lazy_static;
 use orion::kdf;
 use serde::{Deserialize, Serialize};
@@ -185,19 +185,22 @@ where
 
 pub fn update_state_password(password: String) -> Result<String, Box<dyn Error>> {
     update_state(|state| {
-        let salt = kdf::Salt::from_slice(&decode(
-            state
-                .profile
-                .as_ref()
-                .ok_or("Missing profile")?
-                .salt
-                .as_ref()
-                .ok_or("Missing salt")?,
-        )?)?;
+        let salt = kdf::Salt::from_slice(
+            &general_purpose::STANDARD.decode(
+                state
+                    .profile
+                    .as_ref()
+                    .ok_or("Missing profile")?
+                    .salt
+                    .as_ref()
+                    .ok_or("Missing salt")?,
+            )?,
+        )?;
         let password = kdf::Password::from_slice(password.as_bytes())?;
 
         if let Ok(derived_key) = kdf::derive_key(&password, &salt, 3, 1 << 4, 32) {
-            let encoded_derived_key = encode(derived_key.unprotected_as_bytes());
+            let encoded_derived_key =
+                general_purpose::STANDARD.encode(derived_key.unprotected_as_bytes());
             state.set_derived_key(encoded_derived_key);
         }
 

@@ -1,4 +1,4 @@
-use base64::encode;
+use base64::{engine::general_purpose, engine::Engine as _};
 use serde::{Serialize, Deserialize};
 use wasm_bindgen::prelude::wasm_bindgen;
 
@@ -71,7 +71,7 @@ pub async fn get_vault(offset: i32, limit: i32, actor: String) -> Option<String>
     authenticated(move |_: EnigmatickState, profile: Profile| async move {
         let username = profile.username.clone();
 
-        let actor = encode(actor);
+        let actor = general_purpose::STANDARD.encode(actor);
         let url = format!("/api/user/{username}/vault?offset={offset}&limit={limit}&actor={actor}");
         
         if let Some(data) = send_get(None, url, "application/json".to_string()).await {

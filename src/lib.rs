@@ -1,5 +1,6 @@
 #![allow(non_upper_case_globals)]
 
+use base64::{engine::general_purpose, engine::Engine as _};
 use gloo_net::http::Request;
 use futures::Future;
 use serde::{Serialize, Deserialize};
@@ -304,4 +305,9 @@ pub fn get_activity_ap_id_from_uuid(uuid: String) -> Option<String> {
     let server_name = state.server_name.clone()?;
 
     Some(format!("https://{}/activities/{}", server_name, uuid))
+}
+
+#[wasm_bindgen]
+pub fn get_url_safe_base64(text: String) -> String {
+    general_purpose::URL_SAFE_NO_PAD.encode(text)
 }
