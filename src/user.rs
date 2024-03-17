@@ -34,7 +34,7 @@ pub struct Profile {
     pub summary: Option<String>,
     pub public_key: String,
     pub client_public_key: Option<String>,
-    pub avatar_filename: String,
+    pub avatar_filename: Option<String>,
     pub banner_filename: Option<String>,
     pub salt: Option<String>,
     pub client_private_key: Option<String>,
@@ -65,6 +65,8 @@ pub async fn authenticate(username: String, password_str: String) -> Option<Prof
         .json::<Profile>()
         .await
         .ok()?;
+
+    log(&format!("PROFILE\n{user:#?}"));
 
     update_state(|state| {
         state.authenticated = true;
