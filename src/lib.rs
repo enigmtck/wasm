@@ -1,77 +1,90 @@
 #![allow(non_upper_case_globals)]
 
 use base64::{engine::general_purpose, engine::Engine as _};
-use gloo_net::http::Request;
 use futures::Future;
-use serde::{Serialize, Deserialize};
-use wasm_bindgen::prelude::*;
+use gloo_net::http::Request;
+use lazy_static::lazy_static;
+use regex::Regex;
+use serde::{Deserialize, Serialize};
 use std::fmt::{self, Debug};
+use wasm_bindgen::prelude::*;
 
-pub mod announce;
 pub mod accept;
-pub mod attachment;
-pub mod create;
-pub mod user;
-pub mod collection;
-pub mod crypto;
 pub mod activitypub;
 pub mod actor;
+pub mod add;
+pub mod announce;
+pub mod attachment;
+pub mod block;
+pub mod collection;
+pub mod create;
+pub mod crypto;
 pub mod delete;
 pub mod follow;
-pub mod keystore;
-pub mod instance;
 pub mod inbox;
-pub mod outbox;
-pub mod note;
-pub mod processing_queue;
-pub mod state;
-pub mod timeline;
-pub mod session;
-pub mod signature;
-pub mod stream;
-pub mod vault;
-pub mod like;
+pub mod instance;
 pub mod invite;
 pub mod join;
-pub mod update;
-pub mod block;
-pub mod add;
-pub mod remove;
-pub mod undo;
+pub mod keystore;
+pub mod like;
+pub mod note;
 pub mod olm;
+pub mod outbox;
+pub mod processing_queue;
+pub mod question;
+pub mod remove;
+pub mod session;
+pub mod signature;
+pub mod state;
+pub mod stream;
+pub mod timeline;
+pub mod undo;
+pub mod update;
+pub mod user;
+pub mod vault;
 
-pub use announce::*;
 pub use accept::*;
-pub use attachment::*;
-pub use create::*;
-pub use user::*;
-pub use collection::*;
-pub use crypto::*;
 pub use activitypub::*;
 pub use actor::*;
+pub use add::*;
+pub use announce::*;
+pub use attachment::*;
+pub use block::*;
+pub use collection::*;
+pub use create::*;
+pub use crypto::*;
 pub use delete::*;
 pub use follow::*;
-pub use keystore::*;
-pub use instance::*;
 pub use inbox::*;
-pub use outbox::*;
-pub use note::*;
-pub use processing_queue::*;
-pub use session::*;
-pub use state::*;
-pub use timeline::*;
-pub use stream::*;
-pub use signature::*;
-pub use vault::*;
-pub use like::*;
+pub use instance::*;
 pub use invite::*;
 pub use join::*;
-pub use update::*;
-pub use block::*;
-pub use add::*;
-pub use remove::*;
-pub use undo::*;
+pub use keystore::*;
+pub use like::*;
+pub use note::*;
 pub use olm::*;
+pub use outbox::*;
+pub use processing_queue::*;
+pub use question::*;
+pub use remove::*;
+pub use session::*;
+pub use signature::*;
+pub use state::*;
+pub use stream::*;
+pub use timeline::*;
+pub use undo::*;
+pub use update::*;
+pub use user::*;
+pub use vault::*;
+
+lazy_static! {
+    pub static ref HANDLE_RE: Regex =
+        Regex::new(r#"@[a-zA-Z0-9\-_]+@(?:[a-zA-Z0-9\-]+\.)+[a-zA-Z0-9\-]+"#)
+            .expect("invalid handle regex");
+    pub static ref URL_RE: Regex =
+        Regex::new(r#"https://(?:[a-zA-Z0-9\-]+\.)+[a-zA-Z0-9\-]+/[a-zA-Z0-9\-/]+"#)
+            .expect("invalid url regex");
+}
 
 #[wasm_bindgen]
 extern "C" {
@@ -104,7 +117,7 @@ pub enum MaybeMultiple<T> {
     Single(T),
     Multiple(Vec<T>),
     #[default]
-    None
+    None,
 }
 
 impl From<String> for MaybeMultiple<String> {
@@ -130,7 +143,7 @@ impl<T: Clone> MaybeMultiple<T> {
                 }
             }
             MaybeMultiple::Single(s) => Some(s.clone()),
-            MaybeMultiple::None => None
+            MaybeMultiple::None => None,
         }
     }
 
@@ -188,10 +201,14 @@ impl From<String> for MaybeReference<String> {
     }
 }
 
-pub async fn authenticated<F, Fut>(f: F) -> Option<String> where F: FnOnce(EnigmatickState, Profile) -> Fut, Fut: Future<Output = Option<String>> {
+pub async fn authenticated<F, Fut>(f: F) -> Option<String>
+where
+    F: FnOnce(EnigmatickState, Profile) -> Fut,
+    Fut: Future<Output = Option<String>>,
+{
     let state = get_state();
     let profile = state.profile.clone()?;
-    
+
     if state.is_authenticated() {
         f(state, profile.clone()).await
     } else {
@@ -202,7 +219,7 @@ pub async fn authenticated<F, Fut>(f: F) -> Option<String> where F: FnOnce(Enigm
 #[derive(Debug, Clone)]
 pub enum Method {
     Get,
-    Post
+    Post,
 }
 
 impl fmt::Display for Method {
@@ -212,33 +229,38 @@ impl fmt::Display for Method {
 }
 
 pub async fn send_post(url: String, body: String, content_type: String) -> Option<String> {
-    
     let signature = {
         let state = get_state();
-        
+
         sign(SignParams {
             host: state.server_name.clone()?,
             request_target: url.clone(),
             body: Some(body.clone()),
             data: None,
-            method: Method::Post
+            method: Method::Post,
         })?
     };
-    
-    Some(Request::post(&url)
-         .header("Enigmatick-Date", &signature.date)
-         .header("Digest", &signature.digest.unwrap())
-         .header("Signature", &signature.signature)
-         .header("Content-Type", &content_type)
-         .body(body)
-         .send()
-         .await
-         .ok()?
-         .status()
-         .to_string())
+
+    Some(
+        Request::post(&url)
+            .header("Enigmatick-Date", &signature.date)
+            .header("Digest", &signature.digest.unwrap())
+            .header("Signature", &signature.signature)
+            .header("Content-Type", &content_type)
+            .body(body)
+            .send()
+            .await
+            .ok()?
+            .status()
+            .to_string(),
+    )
 }
 
-pub async fn send_get(server_name: Option<String>, url: String, content_type: String) -> Option<String> {
+pub async fn send_get(
+    server_name: Option<String>,
+    url: String,
+    content_type: String,
+) -> Option<String> {
     let signature = {
         let state = get_state();
 
@@ -247,7 +269,7 @@ pub async fn send_get(server_name: Option<String>, url: String, content_type: St
             request_target: url.clone(),
             body: None,
             data: None,
-            method: Method::Get
+            method: Method::Get,
         })
     };
 
@@ -258,8 +280,9 @@ pub async fn send_get(server_name: Option<String>, url: String, content_type: St
             .header("Enigmatick-Date", &signature.date)
             .header("Signature", &signature.signature);
     }
-    
-    request.header("Content-Type", &content_type)
+
+    request
+        .header("Content-Type", &content_type)
         .send()
         .await
         .ok()?
@@ -268,7 +291,12 @@ pub async fn send_get(server_name: Option<String>, url: String, content_type: St
         .ok()
 }
 
-pub async fn upload_file(server_name: String, upload: String, data: &[u8], length: u32) -> Option<String> {
+pub async fn upload_file(
+    server_name: String,
+    upload: String,
+    data: &[u8],
+    length: u32,
+) -> Option<String> {
     let j = js_sys::Uint8Array::new_with_length(length);
     j.copy_from(data);
 
@@ -277,7 +305,7 @@ pub async fn upload_file(server_name: String, upload: String, data: &[u8], lengt
         request_target: upload.clone(),
         body: None,
         data: Some(Vec::from(data)),
-        method: Method::Post
+        method: Method::Post,
     })?;
 
     if let Ok(resp) = Request::post(&upload)
@@ -286,7 +314,8 @@ pub async fn upload_file(server_name: String, upload: String, data: &[u8], lengt
         .header("Signature", &signature.signature)
         .header("Content-Type", "application/octet-stream")
         .body(j)
-        .send().await
+        .send()
+        .await
     {
         if let Ok(attachment) = resp.json::<ApAttachment>().await {
             log(&format!("upload completed\n{attachment:#?}"));

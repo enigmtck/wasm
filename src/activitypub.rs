@@ -4,9 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::{
-    ApAccept, ApActor, ApAdd, ApAnnounce, ApBlock, ApCollection, ApCollectionPage, ApCreate,
-    ApDelete, ApFollow, ApInstrument, ApInvite, ApJoin, ApLike, ApNote, ApRemove, ApSession,
-    ApUndo, ApUpdate,
+    ApAccept, ApActor, ApAdd, ApAnnounce, ApBlock, ApCollection, ApCollectionPage, ApCreate, ApDelete, ApFollow, ApInstrument, ApInvite, ApJoin, ApLike, ApNote, ApQuestion, ApRemove, ApSession, ApUndo, ApUpdate
 };
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -100,6 +98,7 @@ pub enum ApObject {
     Session(ApSession),
     Instrument(ApInstrument),
     Note(ApNote),
+    Question(ApQuestion),
     Actor(ApActor),
     Collection(ApCollection),
     CollectionPage(ApCollectionPage),

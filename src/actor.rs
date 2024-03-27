@@ -1,8 +1,10 @@
-use serde::{Serialize, Deserialize};
-use wasm_bindgen::prelude::wasm_bindgen;
+use serde::{Deserialize, Serialize};
 use std::fmt::{self, Debug};
+use wasm_bindgen::prelude::wasm_bindgen;
 
-use crate::{send_get, ApContext, ApTag, ApAttachment, ApImage, get_state};
+use crate::{
+    get_state, send_get, ApAttachment, ApContext, ApImage, ApTag, MaybeMultiple, HANDLE_RE, URL_RE,
+};
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 #[serde(rename_all = "camelCase")]
@@ -19,7 +21,7 @@ pub struct ApCapabilities {
     pub enigmatick_encryption: Option<bool>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug, Hash)]
 #[serde(untagged)]
 pub enum ApAddress {
     Address(String),
@@ -105,7 +107,7 @@ pub struct ApActor {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub image: Option<ApImage>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub also_known_as: Option<Vec<String>>,
+    pub also_known_as: Option<MaybeMultiple<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub discoverable: Option<bool>,
 
@@ -138,7 +140,7 @@ pub struct WebfingerLink {
     #[serde(rename = "type")]
     kind: Option<String>,
     href: Option<String>,
-    template: Option<String>
+    template: Option<String>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -154,7 +156,6 @@ pub async fn get_remote_resource(
     webfinger: String,
     page: Option<String>,
 ) -> Option<String> {
-
     let state = get_state();
     let profile = format!("user/{}/", state.profile.clone()?.username);
     let server_name = state.server_name.clone()?;
@@ -166,7 +167,7 @@ pub async fn get_remote_resource(
         ),
         None => format!("/api/{profile}remote/{resource}?webfinger={webfinger}"),
     };
-    
+
     send_get(Some(server_name), url, "application/json".to_string()).await
 }
 
@@ -189,7 +190,7 @@ pub async fn get_remote_outbox(webfinger: String, page: Option<String>) -> Optio
 pub async fn get_actor_from_webfinger(webfinger: String) -> Option<String> {
     let state = get_state();
     let authenticated = state.is_authenticated();
-    
+
     let url = {
         if authenticated {
             let username = state.profile.clone()?.username;
@@ -198,14 +199,18 @@ pub async fn get_actor_from_webfinger(webfinger: String) -> Option<String> {
             format!("/api/remote/actor?webfinger={webfinger}")
         }
     };
-    
+
     send_get(None, url, "application/json".to_string()).await
 }
 
 #[wasm_bindgen]
 pub async fn get_actor(id: String) -> Option<String> {
-    if let Some(webfinger) = get_webfinger_from_id(id).await {
+    if URL_RE.is_match(&id) {
+        let webfinger = get_webfinger_from_id(id).await?;
+
         get_actor_from_webfinger(webfinger).await
+    } else if HANDLE_RE.is_match(&id) {
+        get_actor_from_webfinger(id).await
     } else {
         None
     }
@@ -229,4 +234,3 @@ pub async fn get_webfinger_from_id(id: String) -> Option<String> {
 
     send_get(None, url, "application/json".to_string()).await
 }
-

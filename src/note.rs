@@ -26,6 +26,7 @@ impl fmt::Display for ApNoteType {
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(rename_all = "camelCase")]
 pub struct Metadata {
+    pub url: Option<String>,
     pub twitter_title: Option<String>,
     pub description: Option<String>,
     pub og_description: Option<String>,

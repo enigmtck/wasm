@@ -362,7 +362,7 @@ pub async fn get_following() -> Option<String> {
 pub async fn get_profile_by_username(username: String) -> Option<String> {
     let server_url = get_state().server_url.clone()?;
     
-    let resp = Request::get(&format!("{server_url}/user/{username}"))
+    let resp = Request::get(&format!("{server_url}/api/user/{username}"))
         .header("Content-Type", "application/activity+json")
         .header("Accept", "application/activity+json")
         .send().await.ok()?;
