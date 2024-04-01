@@ -21,27 +21,49 @@ pub struct ApCapabilities {
     pub enigmatick_encryption: Option<bool>,
 }
 
-#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug, Hash)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug, Default, Hash)]
 #[serde(untagged)]
 pub enum ApAddress {
     Address(String),
-}
-
-impl ApAddress {
-    pub fn is_public(&self) -> bool {
-        let ApAddress::Address(x) = self;
-        x.to_lowercase() == *"https://www.w3.org/ns/activitystreams#public"
-    }
-
-    pub fn get_public() -> Self {
-        ApAddress::Address("https://www.w3.org/ns/activitystreams#Public".to_string())
-    }
+    #[default]
+    None,
 }
 
 impl fmt::Display for ApAddress {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let ApAddress::Address(x) = self;
-        write!(f, "{}", x.clone())
+        if let ApAddress::Address(x) = self {
+            write!(f, "{}", x.clone())
+        } else {
+            write!(f, "https://localhost")
+        }
+    }
+}
+
+impl From<String> for ApAddress {
+    fn from(address: String) -> Self {
+        ApAddress::Address(address)
+    }
+}
+
+impl TryFrom<serde_json::Value> for ApAddress {
+    type Error = String;
+
+    fn try_from(address: serde_json::Value) -> Result<Self, Self::Error> {
+        serde_json::from_value(address).map_err(|_| "failed to convert to ApAddress")?
+    }
+}
+
+impl ApAddress {
+    pub fn is_public(&self) -> bool {
+        if let ApAddress::Address(x) = self {
+            x.to_lowercase() == *"https://www.w3.org/ns/activitystreams#public"
+        } else {
+            false
+        }
+    }
+
+    pub fn get_public() -> Self {
+        ApAddress::Address("https://www.w3.org/ns/activitystreams#Public".to_string())
     }
 }
 
