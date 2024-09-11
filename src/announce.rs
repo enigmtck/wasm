@@ -1,12 +1,11 @@
 use std::fmt::{self, Debug};
 
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::wasm_bindgen;
 
 use crate::{
-    authenticated, get_state, log, send_post, ApContext,
-    EnigmatickState, Profile, MaybeMultiple, ApAddress, ApUndo,
+    authenticated, get_state, log, send_post, ApAddress, ApContext, ApObject, ApUndo, EnigmatickState, MaybeMultiple, MaybeReference, Profile
 };
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -29,12 +28,18 @@ pub struct ApAnnounce {
     pub context: Option<ApContext>,
     #[serde(rename = "type")]
     pub kind: ApAnnounceType,
-    pub actor: String,
+    pub actor: ApAddress,
+    pub id: Option<String>,
     pub to: MaybeMultiple<ApAddress>,
     pub cc: Option<MaybeMultiple<ApAddress>>,
-    pub id: Option<String>,
     pub published: String,
-    pub object: String,
+    pub object: MaybeReference<ApObject>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ephemeral_created_at: Option<DateTime<Utc>>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ephemeral_updated_at: Option<DateTime<Utc>>,
 }
 
 impl ApAnnounce {
@@ -44,13 +49,15 @@ impl ApAnnounce {
             Some(ApAnnounce {
                 context: None,
                 kind: ApAnnounceType::default(),
-                actor: format!("{server_url}/user/{}",
-                               profile.username),
+                actor: ApAddress::from(format!("{server_url}/user/{}",
+                               profile.username)),
                 id,
-                object,
+                object: MaybeReference::from(object),
                 to: MaybeMultiple::Multiple(vec![ApAddress::get_public()]),
                 cc: None,
                 published: Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
+                ephemeral_created_at: None,
+                ephemeral_updated_at: None
             })
         } else {
             None

@@ -1,5 +1,6 @@
 use core::fmt;
 use std::fmt::Debug;
+use chrono::{DateTime, Utc};
 
 use serde::{Deserialize, Serialize};
 
@@ -34,4 +35,10 @@ pub struct ApCreate {
     pub object: MaybeReference<ApObject>,
     pub published: Option<String>,
     pub signature: Option<ApSignature>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ephemeral_created_at: Option<DateTime<Utc>>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ephemeral_updated_at: Option<DateTime<Utc>>,
 }

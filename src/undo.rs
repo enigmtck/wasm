@@ -50,7 +50,7 @@ impl From<ApAnnounce> for ApUndo {
         ApUndo {
             context: Some(ApContext::default()),
             kind: ApUndoType::default(),
-            actor: announce.actor.clone(),
+            actor: announce.actor.clone().to_string(),
             id: announce
                 .id
                 .clone()
