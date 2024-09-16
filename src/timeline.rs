@@ -46,12 +46,12 @@ pub async fn get_timeline(max: Option<String>, min: Option<String>, limit: i32, 
 }
 
 #[wasm_bindgen]
-pub async fn get_conversation(conversation: String, offset: i32, limit: i32) -> Option<String> {
+pub async fn get_conversation(conversation: String, limit: i32) -> Option<String> {
     authenticated(move |state: EnigmatickState, profile: Profile| async move {
         let username = profile.username.clone();
         
         let conversation = urlencoding::encode(&conversation).to_string();
-        let inbox = format!("/api/user/{username}/conversation?conversation={conversation}&offset={offset}&limit={limit}");
+        let inbox = format!("/api/conversation?id={conversation}&limit={limit}");
         
         let signature = crate::crypto::sign(SignParams {
             host: state.server_name.unwrap(),
@@ -73,9 +73,10 @@ pub async fn get_conversation(conversation: String, offset: i32, limit: i32) -> 
             .ok()?;
         
         if let ApObject::Collection(object) = resp {
-            object.items.map(|items| {
-                serde_json::to_string(&items).unwrap()
-            })
+            serde_json::to_string(&object).ok()
+            //object.items.map(|items| {
+            //    serde_json::to_string(&items).unwrap()    
+            //})
         } else {
             None
         }
