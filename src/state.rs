@@ -16,7 +16,7 @@ lazy_static! {
 }
 
 #[wasm_bindgen(getter_with_clone)]
-#[derive(Default, Clone, Serialize, Deserialize, Debug)]
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct EnigmatickState {
     // e.g., enigmatick.jdt.dev or 192.168.1.1:8080
     // pulled from /api/v2/instance
@@ -50,6 +50,21 @@ pub struct EnigmatickState {
     // this is the decrypted map of user identities to pickled sessions decrypted
     // and decoded from the keystore
     olm_sessions: Option<HashMap<String, String>>,
+}
+
+impl Default for EnigmatickState {
+    fn default() -> Self {
+        EnigmatickState {
+            server_name: None,
+            server_url: None,
+            authenticated: false,
+            derived_key: None,
+            profile: None,
+            client_private_key_pem: None,
+            olm_pickled_account: None,
+            olm_sessions: None,
+        }
+    }
 }
 
 #[wasm_bindgen]

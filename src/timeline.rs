@@ -20,7 +20,7 @@ pub async fn get_timeline(max: Option<String>, min: Option<String>, limit: i32, 
             let url = format!("/user/{username}/inbox?limit={limit}{position}&view={view}");
             
             let text = send_get(None, url, "application/activity+json".to_string()).await?;
-            if let ApObject::Collection(object) = serde_json::from_str(&text).ok()? {
+            if let ApObject::CollectionPage(object) = serde_json::from_str(&text).ok()? {
                 //object.ordered_items.map(|items| serde_json::to_string(&items).unwrap())
                 serde_json::to_string(&object).ok()
             } else {
@@ -35,7 +35,7 @@ pub async fn get_timeline(max: Option<String>, min: Option<String>, limit: i32, 
 
         let text = resp.text().await.ok()?;
         log(&text);
-        if let ApObject::Collection(object) = serde_json::from_str(&text).ok()? {
+        if let ApObject::CollectionPage(object) = serde_json::from_str(&text).ok()? {
             //object.ordered_items.map(|items| serde_json::to_string(&items).unwrap())
             serde_json::to_string(&object).ok()
         } else {
@@ -72,7 +72,7 @@ pub async fn get_conversation(conversation: String, limit: i32) -> Option<String
             .await
             .ok()?;
         
-        if let ApObject::Collection(object) = resp {
+        if let ApObject::CollectionPage(object) = resp {
             serde_json::to_string(&object).ok()
             //object.items.map(|items| {
             //    serde_json::to_string(&items).unwrap()    

@@ -8,6 +8,7 @@ use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::fmt::{self, Debug};
 use wasm_bindgen::prelude::*;
+use wasm_bindgen_futures::future_to_promise;
 
 pub mod accept;
 pub mod activitypub;
@@ -16,6 +17,7 @@ pub mod add;
 pub mod announce;
 pub mod attachment;
 pub mod block;
+pub mod cache;
 pub mod collection;
 pub mod create;
 pub mod crypto;
@@ -50,6 +52,7 @@ pub use add::*;
 pub use announce::*;
 pub use attachment::*;
 pub use block::*;
+pub use cache::*;
 pub use collection::*;
 pub use create::*;
 pub use crypto::*;
@@ -262,6 +265,54 @@ pub async fn send_post(url: String, body: String, content_type: String) -> Optio
     )
 }
 
+pub async fn send_get_promise(
+    server_name: Option<String>,
+    url: String,
+    content_type: String,
+) -> Result<JsValue, JsValue> {
+    let signature = {
+        let state = get_state();
+
+        sign(SignParams {
+            host: server_name.unwrap_or(state.server_name.unwrap()),
+            request_target: url.clone(),
+            body: None,
+            data: None,
+            method: Method::Get,
+        })
+    };
+
+    let mut request = Request::get(&url);
+
+    if let Some(signature) = signature {
+        request = request
+            .header("Enigmatick-Date", &signature.date)
+            .header("Signature", &signature.signature);
+    }
+
+    let response = request
+        .header("Content-Type", &content_type)
+        .send()
+        .await
+        .map_err(|x| JsValue::from(x.to_string()))?;
+
+    // The ? above unwraps the Result. The ok() below checks that the Response
+    // is 200ish
+    if !response.ok() {
+        return Err(JsValue::UNDEFINED);
+    }
+
+    let response_text = response
+        .text()
+        .await
+        .map_err(|x| JsValue::from(x.to_string()))?;
+
+    match response_text.as_str() {
+        "" => Err(JsValue::UNDEFINED),
+        _ => Ok(JsValue::from(response_text)),
+    }
+}
+
 pub async fn send_get(
     server_name: Option<String>,
     url: String,
@@ -287,14 +338,19 @@ pub async fn send_get(
             .header("Signature", &signature.signature);
     }
 
-    request
+    let response = request
         .header("Content-Type", &content_type)
         .send()
         .await
-        .ok()?
-        .text()
-        .await
-        .ok()
+        .ok()?;
+
+    // The ok()? above unwraps the Result. The ok() below checks that the Response
+    // is 200ish
+    if response.ok() {
+        response.text().await.ok()
+    } else {
+        None
+    }
 }
 
 pub async fn upload_file(

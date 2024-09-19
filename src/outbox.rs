@@ -32,17 +32,17 @@ fn extract_outbox_elements(url: String) -> (Option<String>, Option<String>, Opti
 }
 
 #[wasm_bindgen]
-pub async fn get_outbox(url: String) -> Option<String> {
-    log(&format!("REQUEST {url}"));
-    let (username, limit, kind, timestamp) = extract_outbox_elements(url);
+pub async fn get_outbox(username: String, kind: Option<String>, timestamp: Option<String>) -> Option<String> {
+    //log(&format!("REQUEST {username}"));
+    //let (username, limit, kind, timestamp) = extract_outbox_elements(url);
 
-    log(&format!("LIMIT {limit:#?} USERNAME {username:#?} KIND {kind:#?} TIMESTAMP {timestamp:#?}"));
+    log(&format!("USERNAME {username:#?} KIND {kind:#?} TIMESTAMP {timestamp:#?}"));
     
-    let outbox = match (username, kind, timestamp) {
-        (Some(username), Some(kind), Some(timestamp)) => {
-            Some(format!("/user/{username}/outbox?{kind}={timestamp}"))
+    let outbox = match (kind, timestamp) {
+        (Some(kind), Some(timestamp)) => {
+            Some(format!("/user/{username}/outbox?page=true&{kind}={timestamp}"))
         },
-        (Some(username), None, None) => Some(format!("/user/{username}/outbox")),
+        (None, None) => Some(format!("/user/{username}/outbox?page=true")),
         _ => None
     };
 
@@ -54,7 +54,7 @@ pub async fn get_outbox(url: String) -> Option<String> {
         .await
         .ok()?;
     
-    if let Ok(ApObject::Collection(object)) = resp.json().await {
+    if let Ok(ApObject::CollectionPage(object)) = resp.json().await {
         serde_json::to_string(&object).ok()
     } else {
         None

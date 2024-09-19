@@ -1,9 +1,12 @@
+use js_sys::{Promise};
 use serde::{Deserialize, Serialize};
+use wasm_bindgen_futures::future_to_promise;
 use std::fmt::{self, Debug};
 use wasm_bindgen::prelude::wasm_bindgen;
+use crate::log;
 
 use crate::{
-    get_state, send_get, ApAttachment, ApContext, ApImage, ApTag, MaybeMultiple, HANDLE_RE, URL_RE,
+    get_state, send_get, send_get_promise, ApAttachment, ApContext, ApImage, ApTag, EnigmatickCache, MaybeMultiple, HANDLE_RE, URL_RE
 };
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -209,6 +212,59 @@ pub async fn get_remote_outbox(webfinger: String, page: Option<String>) -> Optio
 }
 
 #[wasm_bindgen]
+pub fn get_actor_from_webfinger_promise(webfinger: String) -> Promise {
+    let state = get_state();
+    let authenticated = state.is_authenticated();
+
+    let url = {
+        if authenticated {
+            let username = state.profile.clone().unwrap().username;
+            format!("/api/user/{username}/remote/actor?webfinger={webfinger}")
+        } else {
+            format!("/api/remote/actor?webfinger={webfinger}")
+        }
+    };
+
+    future_to_promise(send_get_promise(None, url, "application/json".to_string()))
+}
+
+#[wasm_bindgen]
+pub async fn get_actor_cached(cache: &EnigmatickCache, id: String) -> Option<Promise> {
+    if let Some(promise) = cache.get(&id.clone()) {
+        log(&format!("SHORT CIRCUITING GET_ACTOR_CACHED: {id}"));
+        return Some(promise);
+    }
+
+    if URL_RE.is_match(&id) {
+        log(&format!("GETTING ID: {id}"));
+        let webfinger = get_webfinger_from_id(id.clone()).await?;
+
+        let p = get_actor_from_webfinger_promise(webfinger);
+        cache.set(&id, p.clone());
+    } else if HANDLE_RE.is_match(&id) {
+        log(&format!("GETTING WEBFINGER: {id}"));
+
+        let p = get_actor_from_webfinger_promise(id.clone());
+        cache.set(&id, p.clone());
+    }
+
+    cache.get(&id.clone())
+}
+
+#[wasm_bindgen]
+pub async fn get_actor(id: String) -> Option<String> {
+    if URL_RE.is_match(&id) {
+        let webfinger = get_webfinger_from_id(id).await?;
+
+        get_actor_from_webfinger(webfinger).await
+    } else if HANDLE_RE.is_match(&id) {
+        get_actor_from_webfinger(id).await
+    } else {
+        None
+    }
+}
+
+#[wasm_bindgen]
 pub async fn get_actor_from_webfinger(webfinger: String) -> Option<String> {
     let state = get_state();
     let authenticated = state.is_authenticated();
@@ -223,19 +279,6 @@ pub async fn get_actor_from_webfinger(webfinger: String) -> Option<String> {
     };
 
     send_get(None, url, "application/json".to_string()).await
-}
-
-#[wasm_bindgen]
-pub async fn get_actor(id: String) -> Option<String> {
-    if URL_RE.is_match(&id) {
-        let webfinger = get_webfinger_from_id(id).await?;
-
-        get_actor_from_webfinger(webfinger).await
-    } else if HANDLE_RE.is_match(&id) {
-        get_actor_from_webfinger(id).await
-    } else {
-        None
-    }
 }
 
 #[wasm_bindgen]
