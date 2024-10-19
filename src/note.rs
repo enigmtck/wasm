@@ -6,7 +6,7 @@ use serde::{Serialize, Deserialize};
 use serde_json::Value;
 use wasm_bindgen::prelude::wasm_bindgen;
 
-use crate::{authenticated, EnigmatickState, Profile, log, send_post, send_get, ApContext, ApTag, ApFlexible, ApAttachment, ApMention, get_webfinger_from_id, encrypt, get_hash, get_state, ApMentionType, resolve_processed_item, ApInstruments, ApInstrument, ApInstrumentType, ApActor, MaybeMultiple, ApAddress, ApObject, error};
+use crate::{authenticated, encrypt, error, get_hash, get_state, get_webfinger_from_id, log, resolve_processed_item, send_get, send_post, ApActor, ApActorTerse, ApAddress, ApAttachment, ApContext, ApFlexible, ApInstrument, ApInstrumentType, ApInstruments, ApMention, ApMentionType, ApObject, ApTag, EnigmatickState, MaybeMultiple, Profile};
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub enum ApNoteType {
@@ -82,7 +82,7 @@ pub struct ApNote {
 
     // These are ephemeral attributes to facilitate client operations
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_announces: Option<Vec<String>>,
+    pub ephemeral_announces: Option<Vec<ApActorTerse>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ephemeral_actors: Option<Vec<ApActor>>,
 
@@ -112,7 +112,10 @@ pub struct ApNote {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ephemeral_metadata: Option<Vec<Metadata>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_likes: Option<Vec<String>>,
+    pub ephemeral_likes: Option<Vec<ApActorTerse>>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ephemeral_attributed_to: Option<Vec<ApActorTerse>>,
 }
 
 impl Default for ApNote {
@@ -146,6 +149,7 @@ impl Default for ApNote {
             ephemeral_targeted: None,
             ephemeral_timestamp: None,
             ephemeral_metadata: None,
+            ephemeral_attributed_to: None,
         }
     }
 }
@@ -226,7 +230,7 @@ pub async fn get_local_conversation(uuid: String) -> Option<String> {
 
 #[wasm_bindgen]
 pub async fn get_note(id: String) -> Option<String> {
-    let path = format!("/api/remote/note?id={}", urlencoding::encode(&id));
+    let path = format!("/api/remote/object?id={}", urlencoding::encode(&id));
     
     send_get(None, path, "application/json".to_string()).await
 }

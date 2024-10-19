@@ -159,6 +159,15 @@ pub struct ApActor {
     pub ephemeral_summary_markdown: Option<String>,
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct ApActorTerse {
+    pub id: String,
+    pub url: String,
+    pub name: String,
+    pub tag: Vec<ApTag>,
+    pub icon: Option<ApImage>,
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct WebfingerLink {
     rel: String,
