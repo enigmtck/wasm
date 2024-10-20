@@ -160,10 +160,12 @@ pub struct ApActor {
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
+#[serde(rename_all = "camelCase")]
 pub struct ApActorTerse {
     pub id: String,
     pub url: String,
-    pub name: String,
+    pub name: Option<String>,
+    pub preferred_username: String,
     pub tag: Vec<ApTag>,
     pub icon: Option<ApImage>,
 }
