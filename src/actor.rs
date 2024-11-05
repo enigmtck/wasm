@@ -3,13 +3,13 @@ use serde::{Deserialize, Serialize};
 use wasm_bindgen_futures::future_to_promise;
 use std::fmt::{self, Debug};
 use wasm_bindgen::prelude::wasm_bindgen;
-use crate::log;
+use crate::{authenticated, log, EnigmatickState, Ephemeral, Profile};
 
 use crate::{
     get_state, send_get, send_get_promise, ApAttachment, ApContext, ApImage, ApTag, EnigmatickCache, MaybeMultiple, HANDLE_RE, URL_RE
 };
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd)]
 #[serde(rename_all = "camelCase")]
 pub struct ApPublicKey {
     pub id: String,
@@ -17,7 +17,7 @@ pub struct ApPublicKey {
     pub public_key_pem: String,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd)]
 #[serde(rename_all = "camelCase")]
 pub struct ApCapabilities {
     pub accepts_chat_messages: Option<bool>,
@@ -70,7 +70,7 @@ impl ApAddress {
     }
 }
 
-#[derive(Serialize, PartialEq, Eq, Deserialize, Clone, Debug, Default)]
+#[derive(Serialize, PartialEq, Eq, Deserialize, Clone, Debug, Default, Ord, PartialOrd)]
 pub enum ApActorType {
     Application,
     Group,
@@ -81,13 +81,13 @@ pub enum ApActorType {
     Unknown,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 #[serde(rename_all = "camelCase")]
 pub struct ApEndpoint {
     pub shared_inbox: String,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 #[serde(rename_all = "camelCase")]
 pub struct ApActor {
     #[serde(rename = "@context")]
@@ -116,7 +116,7 @@ pub struct ApActor {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub featured_tags: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub url: Option<String>,
+    pub url: Option<MaybeMultiple<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub manually_approves_followers: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -140,26 +140,11 @@ pub struct ApActor {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub capabilities: Option<ApCapabilities>,
 
-    // These facilitate consolidation of joined tables in to this object
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_followers: Option<Vec<ApActor>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_leaders: Option<Vec<ApActor>>,
-
-    // These are ephemeral attributes to facilitate client operations
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_following: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_leader_ap_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_follow_activity_ap_id: Option<String>,
-
-    // These are used for user operations on their own profile
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_summary_markdown: Option<String>,
+    pub ephemeral: Option<Ephemeral>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "camelCase")]
 pub struct ApActorTerse {
     pub id: String,
@@ -309,4 +294,14 @@ pub async fn get_webfinger_from_id(id: String) -> Option<String> {
     };
 
     send_get(None, url, "application/json".to_string()).await
+}
+
+#[wasm_bindgen]
+pub async fn get_webfinger_from_handle(handle: String) -> Option<String> {
+    authenticated(move |state: EnigmatickState, _profile: Profile| async move {
+        let server = state.get_server_name();
+
+        server.map(|server| format!("@{handle}@{server}"))
+    })
+    .await
 }

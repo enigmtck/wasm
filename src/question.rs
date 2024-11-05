@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use chrono::{DateTime, Utc};
 use serde::{Serialize, Deserialize};
 
-use crate::{ApActor, ApAddress, ApAttachment, ApCollectionType, ApContext, ApNoteType, ApTag, MaybeMultiple, Metadata};
+use crate::{ApActor, ApAddress, ApAttachment, ApCollectionType, ApContext, ApNoteType, ApTag, Ephemeral, MaybeMultiple, Metadata};
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, Eq, PartialEq)]
 pub enum ApQuestionType {
@@ -84,29 +84,5 @@ pub struct ApQuestion {
     pub in_reply_to: Option<String>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_announces: Option<Vec<String>>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_actors: Option<Vec<ApActor>>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_liked: Option<String>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_announced: Option<String>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_targeted: Option<bool>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_metadata: Option<Vec<Metadata>>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_likes: Option<Vec<String>>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_created_at: Option<DateTime<Utc>>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_updated_at: Option<DateTime<Utc>>,
+    pub ephemeral: Option<Ephemeral>,
 }

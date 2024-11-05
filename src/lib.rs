@@ -1,12 +1,14 @@
 #![allow(non_upper_case_globals)]
 
 use base64::{engine::general_purpose, engine::Engine as _};
+use chrono::{DateTime, Utc};
 use futures::Future;
 use gloo_net::http::Request;
 use lazy_static::lazy_static;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use std::fmt::{self, Debug};
+use serde_json::Value;
+use std::{cmp::Ordering, fmt::{self, Debug}};
 use wasm_bindgen::prelude::*;
 use wasm_bindgen_futures::future_to_promise;
 
@@ -106,6 +108,73 @@ extern "C" {
     fn date_now() -> f64;
 }
 
+#[derive(Clone, Eq, PartialEq, Serialize, Deserialize, Debug)]
+pub struct OrdValue(Value);
+
+impl PartialOrd for OrdValue {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for OrdValue {
+    fn cmp(&self, other: &Self) -> Ordering {
+        let a_str = serde_json::to_string(&self.0).unwrap();
+        let b_str = serde_json::to_string(&other.0).unwrap();
+        a_str.cmp(&b_str)
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd)]
+#[serde(rename_all = "camelCase")]
+pub struct Ephemeral {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub followers: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub leaders: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub following: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub leader_as_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub follow_activity_as_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub summary_markdown: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub actors: Option<Vec<ApActorTerse>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub announces: Option<Vec<ApActorTerse>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub liked: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub announced: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub targeted: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<Vec<Metadata>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub likes: Option<Vec<ApActorTerse>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<DateTime<Utc>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<DateTime<Utc>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub attributed_to: Option<Vec<ApActorTerse>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub internal_uuid: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timestamp: Option<DateTime<Utc>>,
+}
+
+impl From<Option<Vec<ApActorTerse>>> for Ephemeral {
+    fn from(actors: Option<Vec<ApActorTerse>>) -> Self {
+        Self {
+            actors,
+            ..Default::default()
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(untagged)]
 pub enum ActivityPub {
@@ -114,7 +183,7 @@ pub enum ActivityPub {
     Object(ApObject),
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd)]
 #[serde(untagged)]
 pub enum MaybeMultiple<T> {
     Single(T),

@@ -4,7 +4,7 @@ use chrono::{DateTime, Utc};
 
 use serde::{Deserialize, Serialize};
 
-use crate::{ApAddress, ApContext, ApObject, MaybeMultiple, MaybeReference};
+use crate::{ApAddress, ApContext, ApObject, Ephemeral, MaybeMultiple, MaybeReference};
 
 use super::signature::ApSignature;
 
@@ -37,8 +37,5 @@ pub struct ApCreate {
     pub signature: Option<ApSignature>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_created_at: Option<DateTime<Utc>>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_updated_at: Option<DateTime<Utc>>,
+    pub ephemeral: Option<Ephemeral>,
 }

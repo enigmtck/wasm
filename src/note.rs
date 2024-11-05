@@ -6,7 +6,7 @@ use serde::{Serialize, Deserialize};
 use serde_json::Value;
 use wasm_bindgen::prelude::wasm_bindgen;
 
-use crate::{authenticated, encrypt, error, get_hash, get_state, get_webfinger_from_id, log, resolve_processed_item, send_get, send_post, ApActor, ApActorTerse, ApAddress, ApAttachment, ApContext, ApFlexible, ApInstrument, ApInstrumentType, ApInstruments, ApMention, ApMentionType, ApObject, ApTag, EnigmatickState, MaybeMultiple, Profile};
+use crate::{authenticated, encrypt, error, get_hash, get_state, get_webfinger_from_id, log, resolve_processed_item, send_get, send_post, ApActor, ApActorTerse, ApAddress, ApAttachment, ApContext, ApFlexible, ApInstrument, ApInstrumentType, ApInstruments, ApMention, ApMentionType, ApObject, ApTag, EnigmatickState, Ephemeral, MaybeMultiple, Profile};
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
 pub enum ApNoteType {
@@ -23,7 +23,7 @@ impl fmt::Display for ApNoteType {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "camelCase")]
 pub struct Metadata {
     pub url: Option<String>,
@@ -82,40 +82,7 @@ pub struct ApNote {
 
     // These are ephemeral attributes to facilitate client operations
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_announces: Option<Vec<ApActorTerse>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_actors: Option<Vec<ApActor>>,
-
-    // The result of a join with the "likes" table to indicate that a
-    // user has liked this post - should contain the UUID of the record
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_liked: Option<String>,
-
-    // The result of a join with the "announces" table to indicate that a
-    // user has announced this post - should contain the UUID of the record
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_announced: Option<String>,
-
-    // The result of a join with the "timeline_cc" table to indicate that
-    // a user was copied directly
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_targeted: Option<bool>,
-
-    // This is here because "published" is unreliable; it may or
-    // may not exist and may or may not match the ordering of data
-    // pulled from the database based on "created_at". A mismatch
-    // causes jittery rendering; exposing "created_at" here allows
-    // the UI to order consistently with the database and improves UX.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_timestamp: Option<DateTime<Utc>>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_metadata: Option<Vec<Metadata>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_likes: Option<Vec<ApActorTerse>>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_attributed_to: Option<Vec<ApActorTerse>>,
+    pub ephemeral: Option<Ephemeral>,
 }
 
 impl Default for ApNote {
@@ -141,15 +108,7 @@ impl Default for ApNote {
             conversation: None,
             content_map: None,
             instrument: None,
-            ephemeral_announces: None,
-            ephemeral_announced: None,
-            ephemeral_actors: None,
-            ephemeral_liked: None,
-            ephemeral_likes: None,
-            ephemeral_targeted: None,
-            ephemeral_timestamp: None,
-            ephemeral_metadata: None,
-            ephemeral_attributed_to: None,
+            ephemeral: None,
         }
     }
 }

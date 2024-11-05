@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::wasm_bindgen;
 
 use crate::{
-    authenticated, get_state, log, send_post, ApAddress, ApContext, ApObject, ApUndo, EnigmatickState, MaybeMultiple, MaybeReference, Profile
+    authenticated, get_state, log, send_post, ApAddress, ApContext, ApObject, ApUndo, EnigmatickState, Ephemeral, MaybeMultiple, MaybeReference, Profile
 };
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default)]
@@ -36,10 +36,7 @@ pub struct ApAnnounce {
     pub object: MaybeReference<ApObject>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_created_at: Option<DateTime<Utc>>,
-
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ephemeral_updated_at: Option<DateTime<Utc>>,
+    pub ephemeral: Option<Ephemeral>,
 }
 
 impl ApAnnounce {
@@ -56,8 +53,7 @@ impl ApAnnounce {
                 to: MaybeMultiple::Multiple(vec![ApAddress::get_public()]),
                 cc: None,
                 published: Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
-                ephemeral_created_at: None,
-                ephemeral_updated_at: None
+                ephemeral: None
             })
         } else {
             None
