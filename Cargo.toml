@@ -36,7 +36,7 @@ strum_macros = "0.24"
 urlencoding = "2.1"
 
 futures = "0.3"
-vodozemac = "0.5.0"
+vodozemac = "0.8.1"
 
 [dependencies.web-sys]
 version = "0.3.60"

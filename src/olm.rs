@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use crate::log;
+use crate::{add_one_time_keys, authenticated, encrypt, get_hash, get_state, log, send_get, ApCollection, EnigmatickState, OtkUpdateParams, Profile};
 use serde::{Deserialize, Serialize};
 use vodozemac::olm::{Account, AccountPickle, OlmMessage, Session, SessionConfig, SessionPickle};
 use vodozemac::{Curve25519PublicKey, KeyId};
@@ -128,30 +128,77 @@ pub fn decrypt_olm_message(
 #[derive(Serialize, Deserialize)]
 pub struct AccountResponse {
     pub one_time_keys: String,
-    pub pickled_account: String,
+    pub updated_pickled_account: String,
+    pub original_account: String,
 }
 
-#[wasm_bindgen]
-pub fn get_one_time_keys(pickled_account: String) -> Option<AccountResponse> {
-    let mut account = Account::from(serde_json::from_str::<AccountPickle>(&pickled_account).ok()?);
-    account.generate_one_time_keys(2);
+pub fn get_one_time_keys(keys: usize) -> Option<OtkUpdateParams> {
+    let state = get_state();
+
+    log("AFTER STATE");
+    let original_pickled_account = state.get_olm_pickled_account()?;
+    log("AFTER original_pickled_account");
+
+    let original_pickled_account_hash = get_hash(original_pickled_account.clone().into_bytes())?;
+
+    log("AFTER original_pickled_account_hash");
+    let mut account = Account::from(
+        serde_json::from_str::<AccountPickle>(&original_pickled_account).ok()?,
+    );
+
+    log("AFTER account");
+    account.generate_one_time_keys(keys);
+
+    log("AFTER generate");
+
     let b64map: HashMap<KeyId, String> = account
         .one_time_keys()
         .into_iter()
         .map(|(k, v)| (k, v.to_base64()))
         .collect();
 
-    let one_time_keys = serde_json::to_string(&b64map).ok()?;
+    log("AFTER hashmap");  
     account.mark_keys_as_published();
-    let pickled_account = serde_json::to_string(&account.pickle()).ok()?;
-    Some(AccountResponse {
-        one_time_keys,
-        pickled_account,
-    })
+    
+    log("AFTER published");
+    let updated_pickled_account = serde_json::to_string(&account.pickle()).ok()?;
+
+    log("AFTER updated_pickled_account");
+    let mut params = OtkUpdateParams::new();
+    params.set_account(updated_pickled_account);
+    params.set_mutation(original_pickled_account_hash);
+    params.set_keys(serde_json::to_string(&b64map).ok()?);
+
+    Some(params)
 }
 
 #[wasm_bindgen]
 pub fn get_identity_public_key(pickled_account: String) -> String {
     let account = Account::from(serde_json::from_str::<AccountPickle>(&pickled_account).unwrap());
     account.curve25519_key().to_base64()
+}
+
+pub async fn get_otk_collection() -> Option<ApCollection> {
+    let response = authenticated(move |_: EnigmatickState, profile: Profile| async move {
+        let username = profile.username;
+        let path = format!("/user/{username}/keys");
+
+        send_get(None, path, "application/activity+json".to_string()).await
+    })
+    .await;
+
+    response.and_then(|x| serde_json::from_str(&x).ok())
+}
+
+#[wasm_bindgen]
+pub async fn replenish_otk() -> Option<bool> {
+    let otk_collection = get_otk_collection().await?;
+
+    log(&format!("{otk_collection:#?}"));
+
+    if otk_collection.total_items? < 20 {
+        add_one_time_keys(get_one_time_keys(10)?).await;
+    }
+
+    Some(true)
 }

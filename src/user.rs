@@ -5,6 +5,7 @@ use gloo_net::http::Request;
 use orion::{aead, kdf};
 use rsa::pkcs8::{EncodePrivateKey, EncodePublicKey, LineEnding};
 use serde::{Deserialize, Serialize};
+use vodozemac::olm::Account;
 use wasm_bindgen::prelude::wasm_bindgen;
 
 use crate::{
@@ -117,8 +118,6 @@ pub async fn create_user(
     username: String,
     display_name: String,
     password_str: String,
-    olm_identity_public_key: String,
-    olm_pickled_account: String,
 ) -> Option<Profile> {
     let key = get_key_pair();
 
@@ -128,7 +127,10 @@ pub async fn create_user(
         .ok()?;
     let client_private_key = key.private_key.to_pkcs8_pem(LineEnding::default()).ok()?;
     let password = kdf::Password::from_slice(password_str.as_bytes()).ok()?;
-    let olm_identity_key = Some(olm_identity_public_key);
+
+    let account = Account::new();
+    let olm_identity_key = Some(account.curve25519_key().to_base64());
+    let olm_pickled_account = serde_json::to_string(&account.pickle()).unwrap();
 
     let salt = kdf::Salt::default();
 
@@ -140,8 +142,8 @@ pub async fn create_user(
     let cpk_ciphertext = aead::seal(&derived_key, client_private_key.as_bytes()).ok()?;
     let olm_ciphertext = aead::seal(&derived_key, olm_pickled_account.as_bytes()).ok()?;
 
-    let client_private_key = general_purpose::STANDARD.encode(cpk_ciphertext);
-    let olm_pickled_account = general_purpose::STANDARD.encode(olm_ciphertext);
+    let encrypted_client_private_key = general_purpose::STANDARD.encode(cpk_ciphertext);
+    let encrypted_olm_pickled_account = general_purpose::STANDARD.encode(olm_ciphertext);
 
     let olm_pickled_account_hash = get_hash(olm_pickled_account.clone().into_bytes());
 
@@ -150,8 +152,8 @@ pub async fn create_user(
         password: general_purpose::STANDARD.encode(password_hash),
         display_name,
         client_public_key: Some(client_public_key),
-        client_private_key: Some(client_private_key.clone()),
-        olm_pickled_account: Some(olm_pickled_account),
+        client_private_key: Some(encrypted_client_private_key.clone()),
+        olm_pickled_account: Some(encrypted_olm_pickled_account),
         olm_pickled_account_hash,
         olm_identity_key,
         salt,
@@ -166,7 +168,7 @@ pub async fn create_user(
             update_state(|state| {
                 state.set_profile(user.clone());
                 state.set_derived_key(encoded_derived_key);
-                state.set_client_private_key_pem(client_private_key.clone());
+                state.set_client_private_key_pem(client_private_key.clone().to_string());
                 Ok(())
             })
             .ok();
@@ -312,6 +314,7 @@ impl OtkUpdateParams {
     }
 
     pub fn set_account(&mut self, account: String) -> Self {
+        self.account_hash = get_hash(account.clone().into_bytes()).expect("get_hash shouldn't fail");
         self.account = encrypt(None, account).expect("ACCOUNT ENCRYPTION FAILED");
 
         self.clone()

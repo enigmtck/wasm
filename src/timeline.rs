@@ -1,22 +1,15 @@
 use gloo_net::http::Request;
+use urlencoding::encode;
 use wasm_bindgen::prelude::{wasm_bindgen, JsValue};
 use serde_wasm_bindgen;
-use url::form_urlencoded;
 use crate::{authenticated, EnigmatickState, Profile, SignParams, Method, ApObject, error, send_get, get_state, log};
 
-pub fn convert_hashtags_to_query_string(hashtags: &Vec<String>) -> String {
-    // Convert hashtags to URL-encoded query string format
-    let encoded_hashtags: String = hashtags.iter()
-        .map(|tag| {
-            // Prepend # and URL encode
-            form_urlencoded::Serializer::new(String::new())
-                .append_pair("hashtags[]", &format!("#{}", tag))
-                .finish()
-        })
+pub fn convert_hashtags_to_query_string(hashtags: &[String]) -> String {
+    hashtags
+        .iter()
+        .map(|tag| format!("&hashtags[]={}", encode(tag)))
         .collect::<Vec<String>>()
-        .join("&");
-    
-    encoded_hashtags
+        .join("")
 }
 
 #[wasm_bindgen]
@@ -26,12 +19,6 @@ pub async fn get_timeline(max: Option<String>, min: Option<String>, limit: i32, 
     let hashtags: Vec<String> = serde_wasm_bindgen::from_value(hashtags).unwrap_or_default();
     let hashtags = convert_hashtags_to_query_string(&hashtags);
     log(&hashtags);
-
-    let hashtags = if !hashtags.is_empty() {
-        format!("&{hashtags}")
-    } else {
-        String::new()
-    };
 
     let position = {
         if let Some(max) = max {

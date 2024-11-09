@@ -9,7 +9,9 @@ use sha2::{Digest, Sha256};
 use std::error::Error;
 use wasm_bindgen::prelude::wasm_bindgen;
 
-use crate::{date_now, get_state, EnigmatickState, Method, Profile};
+use crate::{
+    authenticated, date_now, get_one_time_keys, get_state, send_get, ApCollection, EnigmatickState, Method, Profile
+};
 
 pub struct KeyPair {
     pub private_key: RsaPrivateKey,
@@ -193,3 +195,4 @@ pub fn encrypt(derived_key: Option<String>, data: String) -> Result<String, Box<
 
     Ok(general_purpose::STANDARD.encode(encrypted))
 }
+
