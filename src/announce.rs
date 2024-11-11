@@ -8,7 +8,7 @@ use crate::{
     authenticated, get_state, log, send_post, ApAddress, ApContext, ApObject, ApUndo, EnigmatickState, Ephemeral, MaybeMultiple, MaybeReference, Profile
 };
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default, Ord, PartialOrd, PartialEq, Eq)]
 pub enum ApAnnounceType {
     #[default]
     Announce,
@@ -20,7 +20,7 @@ impl fmt::Display for ApAnnounceType {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, Ord, PartialOrd, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ApAnnounce {
     #[serde(rename = "@context")]

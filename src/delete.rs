@@ -8,7 +8,7 @@ use crate::{
     EnigmatickState, Profile, MaybeReference, MaybeMultiple, ApAddress, ApObject, ApSignature,
 };
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd)]
 pub enum ApDeleteType {
     #[default]
     Delete,
@@ -20,7 +20,7 @@ impl fmt::Display for ApDeleteType {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd)]
 #[serde(rename_all = "camelCase")]
 pub struct ApDelete {
     #[serde(rename = "@context")]

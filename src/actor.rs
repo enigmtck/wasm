@@ -1,12 +1,13 @@
-use js_sys::{Promise};
+use crate::{authenticated, log, ApCollection, EnigmatickState, Ephemeral, Profile};
+use js_sys::Promise;
 use serde::{Deserialize, Serialize};
-use wasm_bindgen_futures::future_to_promise;
 use std::fmt::{self, Debug};
 use wasm_bindgen::prelude::wasm_bindgen;
-use crate::{authenticated, log, EnigmatickState, Ephemeral, Profile};
+use wasm_bindgen_futures::future_to_promise;
 
 use crate::{
-    get_state, send_get, send_get_promise, ApAttachment, ApContext, ApImage, ApTag, EnigmatickCache, MaybeMultiple, HANDLE_RE, URL_RE
+    get_state, send_get, send_get_promise, ApAttachment, ApContext, ApImage, ApTag,
+    EnigmatickCache, MaybeMultiple, HANDLE_RE, URL_RE,
 };
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd)]
@@ -24,7 +25,7 @@ pub struct ApCapabilities {
     pub enigmatick_encryption: Option<bool>,
 }
 
-#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug, Default, Hash)]
+#[derive(Serialize, Deserialize, Clone, PartialEq, Eq, Debug, Default, Hash, Ord, PartialOrd)]
 #[serde(untagged)]
 pub enum ApAddress {
     Address(String),
@@ -141,6 +142,9 @@ pub struct ApActor {
     pub capabilities: Option<ApCapabilities>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub keys: Option<String>,
+
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub ephemeral: Option<Ephemeral>,
 }
 
@@ -190,6 +194,18 @@ pub async fn get_remote_resource(
     };
 
     send_get(Some(server_name), url, "application/json".to_string()).await
+}
+
+pub async fn get_remote_keys(webfinger: String) -> Option<ApCollection> {
+    let state = get_state();
+    let profile = format!("user/{}/", state.profile.clone()?.username);
+    let server_name = state.server_name.clone()?;
+
+    let url = format!("/api/{profile}remote/keys?webfinger={webfinger}");
+
+    send_get(Some(server_name), url, "application/json".to_string())
+        .await
+        .and_then(|x| serde_json::from_str(&x).ok())
 }
 
 #[wasm_bindgen]
@@ -252,16 +268,19 @@ pub async fn get_actor(id: String) -> Option<String> {
     if URL_RE.is_match(&id) {
         let webfinger = get_webfinger_from_id(id).await?;
 
-        get_actor_from_webfinger(webfinger).await
+        get_actor_from_webfinger(webfinger)
+            .await
+            .and_then(|x| serde_json::to_string(&x).ok())
     } else if HANDLE_RE.is_match(&id) {
-        get_actor_from_webfinger(id).await
+        get_actor_from_webfinger(id)
+            .await
+            .and_then(|x| serde_json::to_string(&x).ok())
     } else {
         None
     }
 }
 
-#[wasm_bindgen]
-pub async fn get_actor_from_webfinger(webfinger: String) -> Option<String> {
+pub async fn get_actor_from_webfinger(webfinger: String) -> Option<ApActor> {
     let state = get_state();
     let authenticated = state.is_authenticated();
 
@@ -274,7 +293,9 @@ pub async fn get_actor_from_webfinger(webfinger: String) -> Option<String> {
         }
     };
 
-    send_get(None, url, "application/json".to_string()).await
+    send_get(None, url, "application/json".to_string())
+        .await
+        .and_then(|x| serde_json::from_str(&x).ok())
 }
 
 #[wasm_bindgen]
@@ -298,10 +319,12 @@ pub async fn get_webfinger_from_id(id: String) -> Option<String> {
 
 #[wasm_bindgen]
 pub async fn get_webfinger_from_handle(handle: String) -> Option<String> {
-    authenticated(move |state: EnigmatickState, _profile: Profile| async move {
-        let server = state.get_server_name();
+    authenticated(
+        move |state: EnigmatickState, _profile: Profile| async move {
+            let server = state.get_server_name();
 
-        server.map(|server| format!("@{handle}@{server}"))
-    })
+            server.map(|server| format!("@{handle}@{server}"))
+        },
+    )
     .await
 }

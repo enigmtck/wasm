@@ -3,13 +3,13 @@ use wasm_bindgen::prelude::wasm_bindgen;
 
 use crate::{authenticated, EnigmatickState, Profile, send_post, ApUndo, ApContext, ApObject, get_state};
 
-#[derive(Serialize, Deserialize, Default, Debug, Clone)]
+#[derive(Serialize, Deserialize, Default, Debug, Clone, Ord, PartialOrd, PartialEq, Eq)]
 pub enum ApFollowType {
     #[default]
     Follow,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default, Ord, PartialOrd, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ApFollow {
     #[serde(rename = "@context")]

@@ -7,7 +7,7 @@ use crate::{ApAddress, ApContext, ApObject, MaybeMultiple, MaybeReference};
 
 use super::signature::ApSignature;
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default, Ord, PartialOrd, PartialEq, Eq)]
 pub enum ApUpdateType {
     #[default]
     Update,
@@ -19,7 +19,7 @@ impl fmt::Display for ApUpdateType {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, Ord, PartialOrd, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ApUpdate {
     #[serde(rename = "@context")]

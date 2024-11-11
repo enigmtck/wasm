@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{ApActivity, ApAddress, ApContext, MaybeReference};
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default, Ord, PartialOrd, PartialEq, Eq)]
 pub enum ApAcceptType {
     #[default]
     Accept,
@@ -17,7 +17,7 @@ impl fmt::Display for ApAcceptType {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, Ord, PartialOrd, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ApAccept {
     #[serde(rename = "@context")]

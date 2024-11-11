@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::{ApAddress, ApContext};
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default, Ord, PartialOrd, PartialEq, Eq)]
 pub enum ApBlockType {
     #[default]
     Block,
@@ -17,7 +17,7 @@ impl fmt::Display for ApBlockType {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, Ord, PartialOrd, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ApBlock {
     #[serde(rename = "@context")]

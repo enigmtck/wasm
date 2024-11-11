@@ -8,7 +8,7 @@ use crate::{
     EnigmatickState, Profile, ApUndo,
 };
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default, Ord, PartialOrd, PartialEq, Eq)]
 pub enum ApLikeType {
     #[default]
     Like,
@@ -20,7 +20,7 @@ impl fmt::Display for ApLikeType {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default, Ord, PartialOrd, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ApLike {
     #[serde(rename = "@context")]

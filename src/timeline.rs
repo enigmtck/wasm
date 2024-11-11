@@ -2,7 +2,7 @@ use gloo_net::http::Request;
 use urlencoding::encode;
 use wasm_bindgen::prelude::{wasm_bindgen, JsValue};
 use serde_wasm_bindgen;
-use crate::{authenticated, EnigmatickState, Profile, SignParams, Method, ApObject, error, send_get, get_state, log};
+use crate::{authenticated, EnigmatickState, Profile, ApObject, error, send_get, get_state, log};
 
 pub fn convert_hashtags_to_query_string(hashtags: &[String]) -> String {
     hashtags
@@ -61,38 +61,10 @@ pub async fn get_timeline(max: Option<String>, min: Option<String>, limit: i32, 
 
 #[wasm_bindgen]
 pub async fn get_conversation(conversation: String, limit: i32) -> Option<String> {
-    authenticated(move |state: EnigmatickState, profile: Profile| async move {
-        let username = profile.username.clone();
-        
+    authenticated(move |_state: EnigmatickState, _profile: Profile| async move {
         let conversation = urlencoding::encode(&conversation).to_string();
         let inbox = format!("/api/conversation?id={conversation}&limit={limit}");
         
-        let signature = crate::crypto::sign(SignParams {
-            host: state.server_name.unwrap(),
-            request_target: inbox.clone(),
-            body: None,
-            data: None,
-            method: Method::Get
-        })?;
-
-        let resp = Request::get(&inbox)
-            .header("Enigmatick-Date", &signature.date)
-            .header("Signature", &signature.signature)
-            .header("Content-Type", "application/activity+json")
-            .send()
-            .await
-            .ok()?
-            .json()
-            .await
-            .ok()?;
-        
-        if let ApObject::CollectionPage(object) = resp {
-            serde_json::to_string(&object).ok()
-            //object.items.map(|items| {
-            //    serde_json::to_string(&items).unwrap()    
-            //})
-        } else {
-            None
-        }
+        send_get(None, inbox, "application/activity+json".to_string()).await
     }).await
 }

@@ -34,6 +34,7 @@ js-sys = "0.3"
 strum = "0.24"
 strum_macros = "0.24"
 urlencoding = "2.1"
+anyhow = "1.0"
 
 futures = "0.3"
 vodozemac = "0.8.1"

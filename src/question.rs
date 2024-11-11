@@ -3,16 +3,16 @@ use std::collections::HashMap;
 use chrono::{DateTime, Utc};
 use serde::{Serialize, Deserialize};
 
-use crate::{ApActor, ApAddress, ApAttachment, ApCollectionType, ApContext, ApNoteType, ApTag, Ephemeral, MaybeMultiple, Metadata};
+use crate::{ApActor, ApAddress, ApAttachment, ApCollectionType, ApContext, ApNoteType, ApTag, Ephemeral, MaybeMultiple, Metadata, OrdValue};
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd)]
 pub enum ApQuestionType {
     #[default]
     #[serde(alias = "question")]
     Question,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd)]
 #[serde(rename_all = "camelCase")]
 pub struct QuestionCollection {
     total_items: i32,
@@ -20,7 +20,7 @@ pub struct QuestionCollection {
     kind: ApCollectionType,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd)]
 #[serde(rename_all = "camelCase")]
 pub struct QuestionNote {
     id: Option<String>,
@@ -32,7 +32,7 @@ pub struct QuestionNote {
     kind: ApNoteType,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd)]
 #[serde(rename_all = "camelCase")]
 pub struct ApQuestion {
     #[serde(rename = "@context")]
@@ -61,7 +61,7 @@ pub struct ApQuestion {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub content_map: Option<HashMap<String, String>>,
+    pub content_map: Option<OrdValue>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub summary: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

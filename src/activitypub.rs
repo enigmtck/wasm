@@ -8,11 +8,11 @@ use crate::{
     ApAccept, ApActor, ApAdd, ApAnnounce, ApBlock, ApCollection, ApCollectionPage, ApCreate, ApDelete, ApFollow, ApInstrument, ApInvite, ApJoin, ApLike, ApNote, ApQuestion, ApRemove, ApSession, ApUndo, ApUpdate, OrdValue
 };
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 #[serde(untagged)]
 pub enum ApFlexible {
-    Single(Value),
-    Multiple(Vec<Value>),
+    Single(OrdValue),
+    Multiple(Vec<OrdValue>),
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -96,7 +96,7 @@ impl Default for ApContext {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd)]
 #[serde(untagged)]
 pub enum ApObject {
     Session(ApSession),
@@ -113,7 +113,7 @@ pub enum ApObject {
     Unknown,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 #[serde(untagged)]
 pub enum ApActivity {
     Delete(Box<ApDelete>),

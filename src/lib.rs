@@ -175,7 +175,7 @@ impl From<Option<Vec<ApActorTerse>>> for Ephemeral {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 #[serde(untagged)]
 pub enum ActivityPub {
     Activity(ApActivity),
@@ -230,12 +230,12 @@ impl<T: Clone> MaybeMultiple<T> {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd)]
 pub struct Identifier {
     id: String,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd)]
 #[serde(untagged)]
 pub enum MaybeReference<T> {
     Reference(String),
@@ -306,13 +306,17 @@ impl fmt::Display for Method {
     }
 }
 
+// probably need to extract the path (without parameters) in the "url" below to standardize the signing (and make the relevant change on the server)
+// same goes for the send_get methods below
 pub async fn send_post(url: String, body: String, content_type: String) -> Option<String> {
     let signature = {
         let state = get_state();
 
+        let url = url.split('?').collect::<Vec<&str>>()[0];
+
         sign(SignParams {
             host: state.server_name.clone()?,
-            request_target: url.clone(),
+            request_target: url.to_string(),
             body: Some(body.clone()),
             data: None,
             method: Method::Post,
@@ -342,9 +346,11 @@ pub async fn send_get_promise(
     let signature = {
         let state = get_state();
 
+        let url = url.split('?').collect::<Vec<&str>>()[0];
+
         sign(SignParams {
             host: server_name.unwrap_or(state.server_name.unwrap()),
-            request_target: url.clone(),
+            request_target: url.to_string(),
             body: None,
             data: None,
             method: Method::Get,
@@ -390,9 +396,11 @@ pub async fn send_get(
     let signature = {
         let state = get_state();
 
+        let url = url.split('?').collect::<Vec<&str>>()[0];
+
         sign(SignParams {
             host: server_name.unwrap_or(state.server_name?),
-            request_target: url.clone(),
+            request_target: url.to_string(),
             body: None,
             data: None,
             method: Method::Get,

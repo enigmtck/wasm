@@ -1,16 +1,18 @@
 use base64::{engine::general_purpose, engine::Engine as _};
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::wasm_bindgen;
 
-use crate::{log, authenticated, EnigmatickState, Profile, send_get, decrypt, send_post, ApContext, get_actor_from_webfinger, ApActor};
+use crate::{
+    authenticated, decrypt, get_actor_from_webfinger, log, send_get, send_post, ApActor, ApContext, EnigmatickState, MaybeMultiple, Profile
+};
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd)]
 pub enum ApSessionType {
     #[default]
     EncryptedSession,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq, Ord, PartialOrd)]
 pub enum ApInstrumentType {
     #[default]
     IdentityKey,
@@ -18,24 +20,31 @@ pub enum ApInstrumentType {
     OlmSession,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq, Ord, PartialOrd)]
 pub struct ApInstrument {
     #[serde(rename = "type")]
     pub kind: ApInstrumentType,
-    pub content: String,
+    pub id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub content: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub hash: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub uuid: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
 }
 
 impl From<OlmSession> for ApInstrument {
     fn from(session: OlmSession) -> Self {
         ApInstrument {
             kind: ApInstrumentType::OlmSession,
-            content: session.session_data,
+            content: Some(session.session_data),
             hash: Some(session.session_hash),
-            uuid: Some(session.uuid)
+            uuid: Some(session.uuid),
+            ..Default::default()
         }
     }
 }
@@ -49,7 +58,7 @@ pub enum ApInstruments {
     Unknown,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd)]
 #[serde(rename_all = "camelCase")]
 pub struct ApSession {
     #[serde(rename = "@context")]
@@ -61,7 +70,7 @@ pub struct ApSession {
     pub id: Option<String>,
     pub to: String,
     pub attributed_to: String,
-    pub instrument: ApInstruments,
+    pub instrument: MaybeMultiple<ApInstrument>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reference: Option<String>,
     pub uuid: Option<String>,
@@ -73,9 +82,9 @@ impl From<KexInitParams> for ApSession {
             context: Some(ApContext::default()),
             kind: ApSessionType::EncryptedSession,
             to: params.recipient,
-            instrument: ApInstruments::Single(ApInstrument {
+            instrument: MaybeMultiple::Single(ApInstrument {
                 kind: ApInstrumentType::IdentityKey,
-                content: params.identity_key,
+                content: Some(params.identity_key),
                 ..Default::default()
             }),
             ..Default::default()
@@ -105,13 +114,13 @@ pub async fn get_session(id: String) -> Option<String> {
     log("IN get_session");
 
     authenticated(move |_: EnigmatickState, profile: Profile| async move {
-        let url = format!("/api/user/{}/session/{}",
-                          profile.username.clone(),
-                          general_purpose::STANDARD.encode(id));
+        let url = format!(
+            "/api/user/{}/session/{}",
+            profile.username.clone(),
+            general_purpose::STANDARD.encode(id)
+        );
 
-        if let Some(response) = send_get(None, url,
-                                         "application/json".to_string()).await {
-            
+        if let Some(response) = send_get(None, url, "application/json".to_string()).await {
             if let Ok(mut session) = serde_json::from_str::<ApSession>(&response) {
                 let mut session_pickle: Option<String> = None;
 
@@ -119,34 +128,38 @@ pub async fn get_session(id: String) -> Option<String> {
                 // to change to passing the whole EncryptedSession to Svelte rather than just the
                 // reduced OlmSessionResponse
                 let mut modified: Vec<ApInstrument> = vec![];
-                
+
                 match session.instrument {
-                    ApInstruments::Multiple(instruments) => {
+                    MaybeMultiple::Multiple(instruments) => {
                         for mut instrument in instruments {
                             if instrument.kind == ApInstrumentType::OlmSession {
-                                if let Ok(decrypted) = decrypt(None, instrument.clone().content) {
-                                    instrument.content = decrypted.clone();
+                                if let Ok(decrypted) =
+                                    decrypt(None, instrument.clone().content.unwrap())
+                                {
+                                    instrument.content = Some(decrypted.clone());
                                     session_pickle = Some(decrypted);
                                 }
                             }
 
                             modified.push(instrument);
-                        };
-                    },
-                    ApInstruments::Single(mut instrument) => {
+                        }
+                    }
+                    MaybeMultiple::Single(mut instrument) => {
                         if instrument.kind == ApInstrumentType::OlmSession {
-                                if let Ok(decrypted) = decrypt(None, instrument.clone().content) {
-                                    instrument.content = decrypted;
-                                }
+                            if let Ok(decrypted) =
+                                decrypt(None, instrument.clone().content.unwrap())
+                            {
+                                instrument.content = Some(decrypted);
                             }
+                        }
 
                         modified.push(instrument);
-                    },
-                    _ => ()
+                    }
+                    _ => (),
                 };
 
-                session.instrument = ApInstruments::Multiple(modified);
-                
+                session.instrument = MaybeMultiple::Multiple(modified);
+
                 if let (Some(session_pickle), Some(uuid)) = (session_pickle, session.uuid) {
                     let response = OlmSessionResponse {
                         session_pickle,
@@ -167,14 +180,15 @@ pub async fn get_session(id: String) -> Option<String> {
         } else {
             None
         }
-    }).await
+    })
+    .await
 }
 
 #[wasm_bindgen(getter_with_clone)]
 #[derive(Debug, Clone, Default)]
 pub struct KexInitParams {
     pub recipient: String,
-    pub identity_key: String
+    pub identity_key: String,
 }
 
 #[wasm_bindgen]
@@ -187,13 +201,11 @@ impl KexInitParams {
         self.recipient = id;
         self.clone()
     }
-    
+
     pub async fn set_recipient_webfinger(&mut self, address: String) -> Self {
         if let Some(actor) = get_actor_from_webfinger(address).await {
-            if let Ok(actor) = serde_json::from_str::<ApActor>(&actor) {
-                if let Some(id) = actor.id {
-                    self.recipient = id;
-                }
+            if let Some(id) = actor.id {
+                self.recipient = id;
             }
         }
         self.clone()
@@ -208,27 +220,33 @@ impl KexInitParams {
 #[wasm_bindgen]
 pub async fn send_kex_init(params: KexInitParams) -> bool {
     authenticated(move |state: EnigmatickState, profile: Profile| async move {
-        let outbox = format!("/user/{}/outbox",
-                             profile.username.clone());
-        
-        let id = format!("{}/user/{}",
-                         state.server_url.unwrap(),
-                         profile.username.clone());
+        let outbox = format!("/user/{}/outbox", profile.username.clone());
+
+        let id = format!(
+            "{}/user/{}",
+            state.server_url.unwrap(),
+            profile.username.clone()
+        );
         let mut encrypted_session = ApSession::from(params);
         encrypted_session.attributed_to = id;
 
-        send_post(outbox,
-                  serde_json::to_string(&encrypted_session).unwrap(),
-                  "application/activity+json".to_string()).await
-    }).await.is_some()
+        send_post(
+            outbox,
+            serde_json::to_string(&encrypted_session).unwrap(),
+            "application/activity+json".to_string(),
+        )
+        .await
+    })
+    .await
+    .is_some()
 }
 
 #[wasm_bindgen]
 pub async fn get_sessions() -> Option<String> {
     authenticated(move |_: EnigmatickState, profile: Profile| async move {
-        let url = format!("/api/user/{}/sessions",
-                             profile.username.clone());
-        
+        let url = format!("/api/user/{}/sessions", profile.username.clone());
+
         send_get(None, url, "application/json".to_string()).await
-    }).await
+    })
+    .await
 }

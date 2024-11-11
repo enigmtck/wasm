@@ -13,7 +13,7 @@ pub enum ApCollectionAmbiguated {
 }
 
 #[wasm_bindgen]
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd)]
 pub enum ApCollectionType {
     #[default]
     Collection,
@@ -27,7 +27,7 @@ impl fmt::Display for ApCollectionType {
 }
 
 #[wasm_bindgen]
-#[derive(Serialize, Deserialize, Clone, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd)]
 pub enum ApCollectionPageType {
     #[default]
     CollectionPage,
@@ -40,7 +40,7 @@ impl fmt::Display for ApCollectionPageType {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 #[serde(rename_all = "camelCase")]
 pub struct ApCollectionPage {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -70,7 +70,7 @@ pub struct ApCollectionPage {
     pub ephemeral: Option<Ephemeral>,
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 #[serde(rename_all = "camelCase")]
 pub struct ApCollection {
     #[serde(skip_serializing_if = "Option::is_none")]
