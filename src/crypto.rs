@@ -8,9 +8,11 @@ use rsa::{pkcs1v15::SigningKey, pkcs8::DecodePrivateKey, RsaPrivateKey, RsaPubli
 use sha2::{Digest, Sha256};
 use std::error::Error;
 use wasm_bindgen::prelude::wasm_bindgen;
+use anyhow::{Result, anyhow};
 
 use crate::{
-    authenticated, date_now, get_one_time_keys, get_state, send_get, ApCollection, EnigmatickState, Method, Profile
+    authenticated, date_now, get_one_time_keys, get_state, send_get, ApCollection, EnigmatickState,
+    Method, Profile,
 };
 
 pub struct KeyPair {
@@ -182,12 +184,12 @@ pub fn decrypt(
     Ok(decrypted_str)
 }
 
-pub fn encrypt(derived_key: Option<String>, data: String) -> Result<String, Box<dyn Error>> {
+pub fn encrypt(derived_key: Option<String>, data: String) -> Result<String> {
     let derived_key = derived_key.unwrap_or(
         get_state()
             .derived_key
             .clone()
-            .ok_or("derived_key missing")?,
+            .ok_or(anyhow!("derived_key missing"))?,
     );
     let decoded_key = general_purpose::STANDARD.decode(derived_key)?;
     let secret_key = SecretKey::from_slice(&decoded_key)?;
@@ -196,3 +198,11 @@ pub fn encrypt(derived_key: Option<String>, data: String) -> Result<String, Box<
     Ok(general_purpose::STANDARD.encode(encrypted))
 }
 
+pub fn get_key() -> Result<Vec<u8>> {
+    let derived_key = get_state()
+        .derived_key
+        .clone()
+        .ok_or(anyhow!("derived_key missing"))?;
+
+    general_purpose::STANDARD.decode(derived_key).map_err(anyhow::Error::msg)
+}

@@ -1,9 +1,11 @@
 use base64::{engine::general_purpose, engine::Engine as _};
 use serde::{Deserialize, Serialize};
+use vodozemac::{olm::{Account, Session}, Curve25519PublicKey};
 use wasm_bindgen::prelude::wasm_bindgen;
+use crate::{encrypt, get_hash};
 
 use crate::{
-    authenticated, decrypt, get_actor_from_webfinger, log, send_get, send_post, ApActor, ApContext, EnigmatickState, MaybeMultiple, Profile
+    authenticated, decrypt, get_actor_from_webfinger, get_key, log, send_get, send_post, ApActor, ApContext, EnigmatickState, MaybeMultiple, Profile
 };
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd)]
@@ -12,19 +14,23 @@ pub enum ApSessionType {
     EncryptedSession,
 }
 
+#[wasm_bindgen]
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq, Ord, PartialOrd)]
 pub enum ApInstrumentType {
     #[default]
-    IdentityKey,
-    SessionKey,
+    OlmIdentityKey,
+    OlmOneTimeKey,
     OlmSession,
+    OlmAccount,
+    VaultItem,
 }
 
+#[wasm_bindgen(getter_with_clone)]
 #[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq, Ord, PartialOrd)]
 pub struct ApInstrument {
     #[serde(rename = "type")]
     pub kind: ApInstrumentType,
-    pub id: String,
+    pub id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -35,6 +41,98 @@ pub struct ApInstrument {
     pub name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mutation_of: Option<String>,
+}
+
+impl ApInstrument {
+    pub fn set_mutation_of(&mut self, mutation_of: String) -> &Self {
+        self.mutation_of = Some(mutation_of);
+        self
+    }
+}
+
+impl TryFrom<String> for ApInstrument {
+    type Error = anyhow::Error;
+
+    fn try_from(data: String) -> Result<Self, Self::Error> {
+        let content = Some(encrypt(None, data).map_err(anyhow::Error::msg)?);
+
+        Ok(
+            ApInstrument {
+                kind: ApInstrumentType::VaultItem,
+                id: None,
+                content,
+                hash: None,
+                uuid: None,
+                name: None,
+                url: None,
+                mutation_of: None
+            }
+        )
+    }
+}
+
+impl TryFrom<&Account> for ApInstrument {
+    type Error = anyhow::Error;
+
+    fn try_from(account: &Account) -> Result<Self, Self::Error> {
+        let key = &*get_key()?;
+        let pickle = account.pickle();
+        let hash = get_hash(serde_json::to_string(&pickle)?.into_bytes());
+        let content = Some(pickle.encrypt(key.try_into()?));
+        Ok(
+            ApInstrument {
+                kind: ApInstrumentType::OlmAccount,
+                id: None,
+                content,
+                hash,
+                uuid: None,
+                name: None,
+                url: None,
+                mutation_of: None,
+            }
+        )
+    }
+}
+
+impl TryFrom<Session> for ApInstrument {
+    type Error = anyhow::Error;
+
+    fn try_from(session: Session) -> Result<Self, Self::Error> {
+        let key = &*get_key()?;
+        let pickle = session.pickle();
+        let hash = get_hash(serde_json::to_string(&pickle)?.into_bytes());
+        let content = Some(pickle.encrypt(key.try_into()?));
+        Ok(
+            ApInstrument {
+                kind: ApInstrumentType::OlmSession,
+                id: None,
+                content,
+                hash,
+                uuid: None,
+                name: None,
+                url: None,
+                mutation_of: None,
+            }
+        )
+    }
+}
+
+type PublicKeyInstrument = (ApInstrumentType, Curve25519PublicKey);
+impl From<PublicKeyInstrument> for ApInstrument {
+    fn from((instrument_type, key): PublicKeyInstrument) -> Self {
+        ApInstrument {
+            kind: instrument_type,
+            id: None,
+            content: Some(key.to_base64()),
+            hash: None,
+            uuid: None,
+            name: None,
+            url: None,
+            mutation_of: None
+        }
+    }
 }
 
 impl From<OlmSession> for ApInstrument {
@@ -83,7 +181,7 @@ impl From<KexInitParams> for ApSession {
             kind: ApSessionType::EncryptedSession,
             to: params.recipient,
             instrument: MaybeMultiple::Single(ApInstrument {
-                kind: ApInstrumentType::IdentityKey,
+                kind: ApInstrumentType::OlmIdentityKey,
                 content: Some(params.identity_key),
                 ..Default::default()
             }),

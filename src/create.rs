@@ -4,7 +4,7 @@ use chrono::{DateTime, Utc};
 
 use serde::{Deserialize, Serialize};
 
-use crate::{ApAddress, ApContext, ApObject, Ephemeral, MaybeMultiple, MaybeReference};
+use crate::{ApAddress, ApContext, ApInstrument, ApObject, Ephemeral, MaybeMultiple, MaybeReference};
 
 use super::signature::ApSignature;
 
@@ -35,7 +35,15 @@ pub struct ApCreate {
     pub object: MaybeReference<ApObject>,
     pub published: Option<String>,
     pub signature: Option<ApSignature>,
+    pub instrument: Option<MaybeMultiple<ApInstrument>>,
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ephemeral: Option<Ephemeral>,
+}
+
+pub struct EncryptedMessage {
+    actor: ApAddress,
+    to: ApAddress,
+    message: String,
+    instruments: Vec<ApInstrument>
 }

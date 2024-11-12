@@ -4,19 +4,23 @@ use std::{
 };
 
 use anyhow::Result;
+use base64::{engine::general_purpose, engine::Engine as _};
 use chrono::{DateTime, Utc};
 use gloo_net::http::Request;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use vodozemac::{olm::{Account, AccountPickle, SessionConfig}, Curve25519PublicKey};
+use vodozemac::{
+    olm::{Account, AccountPickle, SessionConfig, SessionPickle},
+    Curve25519PublicKey,
+};
 use wasm_bindgen::prelude::wasm_bindgen;
 
 use crate::{
-    authenticated, encrypt, error, get_actor_from_webfinger, get_hash, get_remote_keys, get_state,
-    get_webfinger_from_id, log, resolve_processed_item, send_get, send_post, ActivityPub, ApActor,
-    ApActorTerse, ApAddress, ApAttachment, ApContext, ApFlexible, ApInstrument, ApInstrumentType,
-    ApInstruments, ApMention, ApMentionType, ApObject, ApTag, EnigmatickState, Ephemeral,
-    MaybeMultiple, OrdValue, Profile,
+    authenticated, encrypt, error, get_actor_from_webfinger, get_hash, get_identity_public_key,
+    get_key, get_remote_keys, get_state, get_webfinger_from_id, log, resolve_processed_item,
+    send_get, send_post, ActivityPub, ApActor, ApActorTerse, ApAddress, ApAttachment, ApCollection,
+    ApContext, ApFlexible, ApInstrument, ApInstrumentType, ApMention, ApMentionType, ApObject,
+    ApTag, EnigmatickState, Ephemeral, MaybeMultiple, OrdValue, Profile,
 };
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd)]
@@ -59,18 +63,19 @@ pub struct ApNote {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub context: Option<ApContext>,
     pub tag: Option<Vec<ApTag>>,
-    pub attributed_to: String,
+    pub attributed_to: ApAddress,
     pub id: Option<String>,
     #[serde(rename = "type")]
     pub kind: ApNoteType,
+    //pub to: Vec<String>,
     pub to: MaybeMultiple<ApAddress>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
     pub published: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub cc: Option<Vec<String>>,
+    pub cc: Option<MaybeMultiple<ApAddress>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub replies: Option<ApFlexible>,
+    pub replies: Option<ApCollection>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub attachment: Option<Vec<ApAttachment>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -80,10 +85,6 @@ pub struct ApNote {
     pub summary: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub sensitive: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub atom_uri: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub in_reply_to_atom_uri: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub conversation: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -96,12 +97,52 @@ pub struct ApNote {
     pub ephemeral: Option<Ephemeral>,
 }
 
+// #[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
+// #[serde(rename_all = "camelCase")]
+// pub struct ApNote {
+//     #[serde(rename = "@context")]
+//     #[serde(skip_serializing_if = "Option::is_none")]
+//     pub context: Option<ApContext>,
+//     pub tag: Option<Vec<ApTag>>,
+//     pub attributed_to: String,
+//     pub id: Option<String>,
+//     #[serde(rename = "type")]
+//     pub kind: ApNoteType,
+//     pub to: MaybeMultiple<ApAddress>,
+//     #[serde(skip_serializing_if = "Option::is_none")]
+//     pub url: Option<String>,
+//     pub published: String,
+//     #[serde(skip_serializing_if = "Option::is_none")]
+//     pub cc: Option<Vec<String>>,
+//     #[serde(skip_serializing_if = "Option::is_none")]
+//     pub replies: Option<ApFlexible>,
+//     #[serde(skip_serializing_if = "Option::is_none")]
+//     pub attachment: Option<Vec<ApAttachment>>,
+//     #[serde(skip_serializing_if = "Option::is_none")]
+//     pub in_reply_to: Option<String>,
+//     pub content: String,
+//     #[serde(skip_serializing_if = "Option::is_none")]
+//     pub summary: Option<String>,
+//     #[serde(skip_serializing_if = "Option::is_none")]
+//     pub sensitive: Option<bool>,
+//     #[serde(skip_serializing_if = "Option::is_none")]
+//     pub conversation: Option<String>,
+//     #[serde(skip_serializing_if = "Option::is_none")]
+//     pub content_map: Option<OrdValue>,
+//     #[serde(skip_serializing_if = "Option::is_none")]
+//     pub instrument: Option<MaybeMultiple<ApInstrument>>,
+
+//     // These are ephemeral attributes to facilitate client operations
+//     #[serde(skip_serializing_if = "Option::is_none")]
+//     pub ephemeral: Option<Ephemeral>,
+// }
+
 impl Default for ApNote {
     fn default() -> ApNote {
         ApNote {
             context: Some(ApContext::default()),
             tag: None,
-            attributed_to: String::new(),
+            attributed_to: ApAddress::default(),
             id: None,
             kind: ApNoteType::Note,
             to: MaybeMultiple::Multiple(vec![]),
@@ -114,8 +155,6 @@ impl Default for ApNote {
             content: String::new(),
             summary: None,
             sensitive: None,
-            atom_uri: None,
-            in_reply_to_atom_uri: None,
             conversation: None,
             content_map: None,
             instrument: None,
@@ -128,7 +167,7 @@ impl From<SendParams> for ApNote {
     fn from(params: SendParams) -> Self {
         log(&format!("params\n{params:#?}"));
 
-        let mut tag = params
+        let tag = params
             .recipients
             .iter()
             .map(|(x, y)| {
@@ -141,49 +180,69 @@ impl From<SendParams> for ApNote {
             })
             .collect::<Vec<ApTag>>();
 
-        if let Some(idk) = params.identity_key {
-            tag.push(ApTag::Mention(ApMention {
-                kind: ApMentionType::Mention,
-                name: params.attributed_to,
-                href: None,
-                value: Some(idk),
-            }));
-        }
-
-        let mut to: Vec<String> = vec![];
-        let mut cc: Vec<String> = vec![];
+        let mut to: Vec<ApAddress> = vec![];
+        let mut cc: Vec<ApAddress> = vec![];
 
         if params.is_public {
-            to.push("https://www.w3.org/ns/activitystreams#Public".to_string());
-            cc.extend(params.recipients.into_values().collect::<Vec<String>>());
-            cc.extend(params.recipient_ids);
+            to.push(
+                "https://www.w3.org/ns/activitystreams#Public"
+                    .to_string()
+                    .into(),
+            );
+            cc.extend(
+                params
+                    .clone()
+                    .recipients
+                    .into_values()
+                    .map(ApAddress::Address)
+                    .collect::<Vec<ApAddress>>(),
+            );
+            cc.extend(
+                params
+                    .clone()
+                    .recipient_ids
+                    .into_iter()
+                    .map(ApAddress::Address)
+                    .collect::<Vec<ApAddress>>(),
+            );
         } else {
-            to.extend(params.recipients.into_values().collect::<Vec<String>>());
-            to.extend(params.recipient_ids);
+            to.extend(
+                params
+                    .clone()
+                    .recipients
+                    .into_values()
+                    .map(ApAddress::Address)
+                    .collect::<Vec<ApAddress>>(),
+            );
+            to.extend(
+                params
+                    .clone()
+                    .recipient_ids
+                    .into_iter()
+                    .map(ApAddress::Address)
+                    .collect::<Vec<ApAddress>>(),
+            );
         }
 
-        let mut instrument: Option<MaybeMultiple<ApInstrument>> = None;
-        if let (Some(session), Some(hash)) = (params.session_data, params.session_hash) {
-            instrument = Some(MaybeMultiple::Single(ApInstrument {
-                kind: ApInstrumentType::OlmSession,
-                content: Some(session),
-                hash: hash.into(),
-                uuid: params.session_uuid,
-                ..Default::default()
-            }))
-        }
+        let instrument = {
+            if params.is_encrypted {
+                let instruments = params.get_instruments();
+
+                if instruments.is_empty() {
+                    None
+                } else {
+                    Some(MaybeMultiple::Multiple(instruments))
+                }
+            } else {
+                None
+            }
+        };
 
         ApNote {
             context: Some(ApContext::default()),
-            kind: {
-                if params.is_encrypted {
-                    ApNoteType::EncryptedNote
-                } else {
-                    ApNoteType::Note
-                }
-            },
-            to: MaybeMultiple::Multiple(to.iter().map(|x| ApAddress::Address(x.clone())).collect()),
-            cc: Some(cc),
+            kind: ApNoteType::Note,
+            to: MaybeMultiple::Multiple(to),
+            cc: Some(cc.into()),
             tag: Some(tag),
             attachment: {
                 if let Some(attachments) = params.attachments {
@@ -248,13 +307,11 @@ pub struct SendParams {
     conversation: Option<String>,
     attachments: Option<String>,
 
-    // OLM session information
-    session_data: Option<String>,
-    session_hash: Option<String>,
-    session_uuid: Option<String>,
-    mutation_of: Option<String>,
+    olm_account: Option<ApInstrument>,
+    olm_session: Option<ApInstrument>,
+    olm_identity_key: Option<ApInstrument>,
+    vault_item: Option<ApInstrument>,
 
-    identity_key: Option<String>,
     resolves: Option<String>,
     is_public: bool,
     is_encrypted: bool,
@@ -279,9 +336,46 @@ impl SendParams {
         self.clone()
     }
 
-    pub fn set_identity_key(&mut self, identity_key: String) -> Self {
-        self.identity_key = Some(identity_key);
+    fn set_vault_item(&mut self, instrument: ApInstrument) -> Self {
+        self.vault_item = Some(instrument);
         self.clone()
+    }
+
+    fn set_olm_identity_key(&mut self, instrument: ApInstrument) -> Self {
+        self.olm_identity_key = Some(instrument);
+        self.clone()
+    }
+
+    fn set_olm_session(&mut self, instrument: ApInstrument) -> Self {
+        self.olm_session = Some(instrument);
+        self.clone()
+    }
+
+    fn set_olm_account(&mut self, instrument: ApInstrument) -> Self {
+        self.olm_account = Some(instrument);
+        self.clone()
+    }
+
+    fn get_instruments(&self) -> Vec<ApInstrument> {
+        let mut instruments = vec![];
+
+        if let Some(olm_account) = self.olm_account.clone() {
+            instruments.push(olm_account);
+        }
+
+        if let Some(olm_session) = self.olm_session.clone() {
+            instruments.push(olm_session);
+        }
+
+        if let Some(olm_identity_key) = self.olm_identity_key.clone() {
+            instruments.push(olm_identity_key);
+        }
+
+        if let Some(vault_item) = self.vault_item.clone() {
+            instruments.push(vault_item);
+        }
+
+        instruments
     }
 
     pub fn set_encrypted(&mut self) -> Self {
@@ -323,22 +417,6 @@ impl SendParams {
         self.clone()
     }
 
-    pub fn set_session_uuid(&mut self, uuid: Option<String>) -> Self {
-        self.session_uuid = uuid;
-        self.clone()
-    }
-
-    pub fn set_session_data(&mut self, session_data: String) -> Self {
-        self.session_hash = get_hash(session_data.clone().into_bytes());
-        self.session_data = encrypt(None, session_data).ok();
-        self.clone()
-    }
-
-    pub fn set_mutation_of(&mut self, mutation_of: String) -> Self {
-        self.mutation_of = mutation_of.into();
-        self.clone()
-    }
-
     pub fn get_recipients(&self) -> String {
         serde_json::to_string(&self.recipients).unwrap()
     }
@@ -377,39 +455,69 @@ pub async fn encrypt_note(mut params: SendParams) -> Result<SendParams> {
             if let Some(keys) = keys {
                 log(&format!("{keys:#?}"));
 
-                let (one_time_key, identity_key) =
-                    keys.items
-                        .map(|items| {
-                            items
-                                .into_iter()
-                                .fold((None, None), |(one_time, identity), item| match item {
-                                    ActivityPub::Object(ApObject::Instrument(instrument)) => {
-                                        match instrument.kind {
-                                            ApInstrumentType::SessionKey if one_time.is_none() => {
-                                                (instrument.content, identity)
-                                            }
-                                            ApInstrumentType::IdentityKey if identity.is_none() => {
-                                                (one_time, instrument.content)
-                                            }
-                                            _ => (one_time, identity),
+                let (one_time_key, identity_key) = keys
+                    .items
+                    .map(|items| {
+                        items.into_iter().fold(
+                            (None, None),
+                            |(one_time, identity), item| match item {
+                                ActivityPub::Object(ApObject::Instrument(instrument)) => {
+                                    match instrument.kind {
+                                        ApInstrumentType::OlmOneTimeKey if one_time.is_none() => {
+                                            (instrument.content, identity)
                                         }
+                                        ApInstrumentType::OlmIdentityKey if identity.is_none() => {
+                                            (one_time, instrument.content)
+                                        }
+                                        _ => (one_time, identity),
                                     }
-                                    _ => (one_time, identity),
-                                })
-                        })
-                        .unwrap_or((None, None));
+                                }
+                                _ => (one_time, identity),
+                            },
+                        )
+                    })
+                    .unwrap_or((None, None));
 
                 if let (Some(identity_key), Some(one_time_key)) = (identity_key, one_time_key) {
-                    let identity_key = Curve25519PublicKey::from_base64(&identity_key).map_err(anyhow::Error::msg)?;
-                    let one_time_key = Curve25519PublicKey::from_base64(&one_time_key).map_err(anyhow::Error::msg)?;
+                    let identity_key = Curve25519PublicKey::from_base64(&identity_key)
+                        .map_err(anyhow::Error::msg)?;
+                    let one_time_key = Curve25519PublicKey::from_base64(&one_time_key)
+                        .map_err(anyhow::Error::msg)?;
                     if let Some(pickled_account) = state.get_olm_pickled_account() {
-                        let pickled_account = serde_json::from_str::<AccountPickle>(&pickled_account).map_err(anyhow::Error::msg)?;
+                        let original_account_hash =
+                            get_hash(pickled_account.clone().into_bytes()).unwrap();
+
+                        let pickled_account =
+                            serde_json::from_str::<AccountPickle>(&pickled_account)
+                                .map_err(anyhow::Error::msg)?;
+
                         let account = Account::from(pickled_account);
-                        let mut outbound =
-                        account.create_outbound_session(SessionConfig::version_2(), identity_key, one_time_key);
-            
-                        let message = serde_json::to_string(&outbound.encrypt(params.get_content())).map_err(anyhow::Error::msg)?;
-                        log(&format!("ENCRYPTED MESSAGE: {message}"));
+                        params.set_olm_account(
+                            ApInstrument::try_from(&account)?
+                                .set_mutation_of(original_account_hash)
+                                .clone(),
+                        );
+
+                        let mut outbound = account.create_outbound_session(
+                            SessionConfig::version_2(),
+                            identity_key,
+                            one_time_key,
+                        );
+
+                        params.set_vault_item(params.get_content().clone().try_into()?);
+                        params.set_content(
+                            serde_json::to_string(&outbound.encrypt(params.get_content()))
+                                .map_err(anyhow::Error::msg)?,
+                        );
+                        params.set_olm_session(ApInstrument::try_from(outbound)?);
+                        params.set_olm_identity_key(ApInstrument::from((
+                            ApInstrumentType::OlmIdentityKey,
+                            account.curve25519_key(),
+                        )));
+
+                        params.set_encrypted();
+
+                        log(&format!("SendParams\n{params:#?}"));
                     }
                 }
             }
@@ -431,9 +539,9 @@ pub async fn send_note(params: SendParams) -> bool {
             profile.username.clone()
         );
         let mut note = ApNote::from(params);
-        note.attributed_to = id;
+        note.attributed_to = id.into();
 
-        log(&format!("NOTE\n{note:#?}"));
+        log(&format!("NOTE\n{}", serde_json::to_string(&note).unwrap()));
         // send_post(
         //     outbox,
         //     serde_json::to_string(&note).unwrap(),
@@ -460,7 +568,7 @@ pub async fn send_encrypted_note(params: SendParams) -> bool {
         );
 
         let mut encrypted_message = ApNote::from(params.clone());
-        encrypted_message.attributed_to = id;
+        encrypted_message.attributed_to = id.into();
 
         if send_post(
             outbox,
