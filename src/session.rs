@@ -50,6 +50,14 @@ impl ApInstrument {
         self.mutation_of = Some(mutation_of);
         self
     }
+
+    pub fn is_vault_item(&self) -> bool {
+        matches!(self.kind, ApInstrumentType::VaultItem)
+    }
+
+    pub fn is_olm_identity_key(&self) -> bool {
+        matches!(self.kind, ApInstrumentType::OlmIdentityKey)
+    }
 }
 
 impl TryFrom<String> for ApInstrument {

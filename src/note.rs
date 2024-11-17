@@ -97,45 +97,11 @@ pub struct ApNote {
     pub ephemeral: Option<Ephemeral>,
 }
 
-// #[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
-// #[serde(rename_all = "camelCase")]
-// pub struct ApNote {
-//     #[serde(rename = "@context")]
-//     #[serde(skip_serializing_if = "Option::is_none")]
-//     pub context: Option<ApContext>,
-//     pub tag: Option<Vec<ApTag>>,
-//     pub attributed_to: String,
-//     pub id: Option<String>,
-//     #[serde(rename = "type")]
-//     pub kind: ApNoteType,
-//     pub to: MaybeMultiple<ApAddress>,
-//     #[serde(skip_serializing_if = "Option::is_none")]
-//     pub url: Option<String>,
-//     pub published: String,
-//     #[serde(skip_serializing_if = "Option::is_none")]
-//     pub cc: Option<Vec<String>>,
-//     #[serde(skip_serializing_if = "Option::is_none")]
-//     pub replies: Option<ApFlexible>,
-//     #[serde(skip_serializing_if = "Option::is_none")]
-//     pub attachment: Option<Vec<ApAttachment>>,
-//     #[serde(skip_serializing_if = "Option::is_none")]
-//     pub in_reply_to: Option<String>,
-//     pub content: String,
-//     #[serde(skip_serializing_if = "Option::is_none")]
-//     pub summary: Option<String>,
-//     #[serde(skip_serializing_if = "Option::is_none")]
-//     pub sensitive: Option<bool>,
-//     #[serde(skip_serializing_if = "Option::is_none")]
-//     pub conversation: Option<String>,
-//     #[serde(skip_serializing_if = "Option::is_none")]
-//     pub content_map: Option<OrdValue>,
-//     #[serde(skip_serializing_if = "Option::is_none")]
-//     pub instrument: Option<MaybeMultiple<ApInstrument>>,
-
-//     // These are ephemeral attributes to facilitate client operations
-//     #[serde(skip_serializing_if = "Option::is_none")]
-//     pub ephemeral: Option<Ephemeral>,
-// }
+impl ApNote {
+    pub fn is_encrypted(&self) -> bool {
+        matches!(self.kind, ApNoteType::EncryptedNote)
+    }
+}
 
 impl Default for ApNote {
     fn default() -> ApNote {
@@ -240,7 +206,11 @@ impl From<SendParams> for ApNote {
 
         ApNote {
             context: Some(ApContext::default()),
-            kind: ApNoteType::Note,
+            kind: if params.is_encrypted {
+                ApNoteType::EncryptedNote
+            } else {
+                ApNoteType::Note
+            },
             to: MaybeMultiple::Multiple(to),
             cc: Some(cc.into()),
             tag: Some(tag),
@@ -542,13 +512,13 @@ pub async fn send_note(params: SendParams) -> bool {
         note.attributed_to = id.into();
 
         log(&format!("NOTE\n{}", serde_json::to_string(&note).unwrap()));
-        // send_post(
-        //     outbox,
-        //     serde_json::to_string(&note).unwrap(),
-        //     "application/activity+json".to_string(),
-        // )
-        // .await
-        Some("".to_string())
+        send_post(
+            outbox,
+            serde_json::to_string(&note).unwrap(),
+            "application/activity+json".to_string(),
+        )
+        .await
+        //Some("".to_string())
     })
     .await
     .is_some()
