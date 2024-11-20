@@ -9,9 +9,7 @@ use vodozemac::olm::Account;
 use wasm_bindgen::prelude::wasm_bindgen;
 
 use crate::{
-    authenticated, decrypt, derive_key, encode_derived_key, encrypt, error, get_hash, get_key_pair,
-    get_state, log, send_get, send_post, update_state, update_state_password, upload_file, ApActor,
-    ApObject, EnigmatickState,
+    authenticated, decrypt, derive_key, encode_derived_key, encrypt, error, get_hash, get_key_pair, get_state, log, send_get, send_post, update_state, update_state_password, upload_file, ApActor, ApInstrument, ApObject, EnigmatickState
 };
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -84,7 +82,7 @@ pub async fn authenticate(username: String, password_str: String) -> Option<Prof
         user.salt.clone(),
         user.client_private_key.clone(),
         user.olm_pickled_account.clone(),
-    ) {
+    ) { 
         let derived_key = derive_key(password_str, salt).ok()?;
         let encoded_derived_key = encode_derived_key(&derived_key);
 
@@ -103,6 +101,7 @@ pub async fn authenticate(username: String, password_str: String) -> Option<Prof
         .ok()?;
 
         let pickled_account = decrypt(Some(encoded_derived_key), pickled_account).ok()?;
+        log(&format!("Olm Pickled Account Hash: {}", get_hash(pickled_account.clone().into_bytes()).unwrap_or_default()));
         update_state(|state| {
             state.set_olm_pickled_account(pickled_account);
             Ok(())
@@ -177,6 +176,19 @@ pub async fn create_user(
         user
     }
     .await
+}
+
+pub async fn get_olm_account() -> Option<ApInstrument> {
+    authenticated(
+        move |_state: EnigmatickState, _profile: Profile| async move {
+            let inbox = format!("/api/instruments/olm-account");
+
+            send_get(None, inbox, "application/activity+json".to_string()).await
+        },
+    )
+    .await.and_then(|x| {
+        serde_json::from_str(&x).ok()
+    })
 }
 
 #[wasm_bindgen]

@@ -96,7 +96,7 @@ impl Default for ApContext {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd)]
+#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 #[serde(untagged)]
 pub enum ApObject {
     Session(ApSession),
@@ -109,8 +109,24 @@ pub enum ApObject {
 
     // These members exist to catch unknown object types
     Plain(String),
-    #[default]
-    Unknown,
+}
+
+impl Default for ApObject {
+    fn default() -> ApObject {
+        ApObject::Plain("default".to_string())
+    }
+}
+
+impl From<ApInstrument> for ApObject {
+    fn from(instrument: ApInstrument) -> Self {
+        ApObject::Instrument(instrument)
+    }
+}
+
+impl FromIterator<ApInstrument> for Vec<ApObject> {
+    fn from_iter<I: IntoIterator<Item = ApInstrument>>(iter: I) -> Self {
+        iter.into_iter().map(ApObject::from).collect()
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]

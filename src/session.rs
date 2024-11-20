@@ -43,6 +43,10 @@ pub struct ApInstrument {
     pub url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub mutation_of: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub conversation: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub activity: Option<String>,
 }
 
 impl ApInstrument {
@@ -51,12 +55,24 @@ impl ApInstrument {
         self
     }
 
-    pub fn is_vault_item(&self) -> bool {
-        matches!(self.kind, ApInstrumentType::VaultItem)
-    }
-
     pub fn is_olm_identity_key(&self) -> bool {
         matches!(self.kind, ApInstrumentType::OlmIdentityKey)
+    }
+
+    pub fn is_olm_one_time_key(&self) -> bool {
+        matches!(self.kind, ApInstrumentType::OlmOneTimeKey)
+    }
+
+    pub fn is_olm_session(&self) -> bool {
+        matches!(self.kind, ApInstrumentType::OlmSession)
+    }
+
+    pub fn is_olm_account(&self) -> bool {
+        matches!(self.kind, ApInstrumentType::OlmAccount)
+    }
+
+    pub fn is_vault_item(&self) -> bool {
+        matches!(self.kind, ApInstrumentType::VaultItem)
     }
 }
 
@@ -75,7 +91,9 @@ impl TryFrom<String> for ApInstrument {
                 uuid: None,
                 name: None,
                 url: None,
-                mutation_of: None
+                mutation_of: None,
+                conversation: None,
+                activity: None
             }
         )
     }
@@ -85,10 +103,11 @@ impl TryFrom<&Account> for ApInstrument {
     type Error = anyhow::Error;
 
     fn try_from(account: &Account) -> Result<Self, Self::Error> {
-        let key = &*get_key()?;
-        let pickle = account.pickle();
-        let hash = get_hash(serde_json::to_string(&pickle)?.into_bytes());
-        let content = Some(pickle.encrypt(key.try_into()?));
+        //let key = &*get_key()?;
+        let olm_pickled_account = serde_json::to_string(&account.pickle()).unwrap();
+        let hash = get_hash(olm_pickled_account.clone().into_bytes());
+        let content = encrypt(None, olm_pickled_account).ok();
+        //let content = Some(pickle.encrypt(key.try_into()?));
         Ok(
             ApInstrument {
                 kind: ApInstrumentType::OlmAccount,
@@ -99,6 +118,8 @@ impl TryFrom<&Account> for ApInstrument {
                 name: None,
                 url: None,
                 mutation_of: None,
+                conversation: None,
+                activity: None
             }
         )
     }
@@ -122,6 +143,8 @@ impl TryFrom<Session> for ApInstrument {
                 name: None,
                 url: None,
                 mutation_of: None,
+                conversation: None,
+                activity: None
             }
         )
     }
@@ -138,7 +161,9 @@ impl From<PublicKeyInstrument> for ApInstrument {
             uuid: None,
             name: None,
             url: None,
-            mutation_of: None
+            mutation_of: None,
+            conversation: None,
+            activity: None
         }
     }
 }

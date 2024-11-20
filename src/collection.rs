@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
 use wasm_bindgen::prelude::wasm_bindgen;
 
-use crate::{ActivityPub, ApContext, Ephemeral, MaybeReference};
+use crate::{ActivityPub, ApContext, ApInstrument, ApObject, Ephemeral, MaybeReference};
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 #[serde(untagged)]
@@ -61,7 +61,7 @@ pub struct ApCollectionPage {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub part_of: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub total_items: Option<i32>,
+    pub total_items: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub items: Option<Vec<ActivityPub>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -80,7 +80,7 @@ pub struct ApCollection {
     pub kind: ApCollectionType,
     pub id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub total_items: Option<u32>,
+    pub total_items: Option<i64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub items: Option<Vec<ActivityPub>>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -99,4 +99,35 @@ pub struct ApCollection {
     pub part_of: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ephemeral: Option<Ephemeral>,
+}
+
+impl From<Vec<ApInstrument>> for ApCollection {
+    fn from(instruments: Vec<ApInstrument>) -> Self {
+        Self {
+            kind: ApCollectionType::Collection,
+            total_items: Some(instruments.len() as i64),
+            items: Some(instruments.into_iter().map(ApObject::from).collect()),
+            ..Default::default()
+        }
+    }
+}
+
+impl Default for ApCollection {
+    fn default() -> ApCollection {
+        ApCollection {
+            context: Some(ApContext::default()),
+            kind: ApCollectionType::Collection,
+            id: None,
+            total_items: None,
+            items: None,
+            ordered_items: None,
+            first: None,
+            last: None,
+            next: None,
+            prev: None,
+            current: None,
+            part_of: None,
+            ephemeral: None,
+        }
+    }
 }

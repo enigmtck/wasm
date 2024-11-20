@@ -164,6 +164,8 @@ pub struct Ephemeral {
     pub internal_uuid: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub timestamp: Option<DateTime<Utc>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub instruments_to_update: Option<Vec<ApInstrument>>,
 }
 
 impl From<Option<Vec<ApActorTerse>>> for Ephemeral {
@@ -181,6 +183,18 @@ pub enum ActivityPub {
     Activity(ApActivity),
     Actor(ApActor),
     Object(ApObject),
+}
+
+impl From<ApObject> for ActivityPub {
+    fn from(object: ApObject) -> Self {
+        ActivityPub::Object(object)
+    }
+}
+
+impl FromIterator<ApObject> for Vec<ActivityPub> {
+    fn from_iter<I: IntoIterator<Item = ApObject>>(iter: I) -> Self {
+        iter.into_iter().map(ActivityPub::from).collect()
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd)]
