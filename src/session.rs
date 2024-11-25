@@ -150,6 +150,20 @@ impl TryFrom<Session> for ApInstrument {
     }
 }
 
+pub async fn get_olm_session(id: String) -> Option<String> {
+    authenticated(
+        move |_state: EnigmatickState, _profile: Profile| async move {
+            let id = urlencoding::encode(&id).to_string();
+            let url = format!("/api/instruments/olm-session?id={id}");
+
+            send_get(None, url, "application/activity+json".to_string()).await
+        },
+    )
+    .await
+}
+
+// Below here is mostly legacy
+
 type PublicKeyInstrument = (ApInstrumentType, Curve25519PublicKey);
 impl From<PublicKeyInstrument> for ApInstrument {
     fn from((instrument_type, key): PublicKeyInstrument) -> Self {
