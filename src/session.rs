@@ -1,11 +1,18 @@
+use std::borrow::Borrow;
+
+use crate::{encrypt, get_hash};
+use anyhow::{anyhow, Result};
 use base64::{engine::general_purpose, engine::Engine as _};
 use serde::{Deserialize, Serialize};
-use vodozemac::{olm::{Account, Session}, Curve25519PublicKey};
+use vodozemac::{
+    olm::{Account, Session, SessionPickle},
+    Curve25519PublicKey,
+};
 use wasm_bindgen::prelude::wasm_bindgen;
-use crate::{encrypt, get_hash};
 
 use crate::{
-    authenticated, decrypt, get_actor_from_webfinger, get_key, log, send_get, send_post, ApActor, ApContext, EnigmatickState, MaybeMultiple, Profile
+    authenticated, decrypt, get_actor_from_webfinger, get_key, log, send_get, send_post, ApActor,
+    ApContext, EnigmatickState, MaybeMultiple, Profile,
 };
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd)]
@@ -82,20 +89,26 @@ impl TryFrom<String> for ApInstrument {
     fn try_from(data: String) -> Result<Self, Self::Error> {
         let content = Some(encrypt(None, data).map_err(anyhow::Error::msg)?);
 
-        Ok(
-            ApInstrument {
-                kind: ApInstrumentType::VaultItem,
-                id: None,
-                content,
-                hash: None,
-                uuid: None,
-                name: None,
-                url: None,
-                mutation_of: None,
-                conversation: None,
-                activity: None
-            }
-        )
+        Ok(ApInstrument {
+            kind: ApInstrumentType::VaultItem,
+            id: None,
+            content,
+            hash: None,
+            uuid: None,
+            name: None,
+            url: None,
+            mutation_of: None,
+            conversation: None,
+            activity: None,
+        })
+    }
+}
+
+impl TryFrom<&mut Account> for ApInstrument {
+    type Error = anyhow::Error;
+
+    fn try_from(account: &mut Account) -> Result<Self, Self::Error> {
+        ApInstrument::try_from(account.borrow())
     }
 }
 
@@ -103,25 +116,22 @@ impl TryFrom<&Account> for ApInstrument {
     type Error = anyhow::Error;
 
     fn try_from(account: &Account) -> Result<Self, Self::Error> {
-        //let key = &*get_key()?;
         let olm_pickled_account = serde_json::to_string(&account.pickle()).unwrap();
         let hash = get_hash(olm_pickled_account.clone().into_bytes());
         let content = encrypt(None, olm_pickled_account).ok();
-        //let content = Some(pickle.encrypt(key.try_into()?));
-        Ok(
-            ApInstrument {
-                kind: ApInstrumentType::OlmAccount,
-                id: None,
-                content,
-                hash,
-                uuid: None,
-                name: None,
-                url: None,
-                mutation_of: None,
-                conversation: None,
-                activity: None
-            }
-        )
+
+        Ok(ApInstrument {
+            kind: ApInstrumentType::OlmAccount,
+            id: None,
+            content,
+            hash,
+            uuid: None,
+            name: None,
+            url: None,
+            mutation_of: None,
+            conversation: None,
+            activity: None,
+        })
     }
 }
 
@@ -133,33 +143,32 @@ impl TryFrom<Session> for ApInstrument {
         let pickle = session.pickle();
         let hash = get_hash(serde_json::to_string(&pickle)?.into_bytes());
         let content = Some(pickle.encrypt(key.try_into()?));
-        Ok(
-            ApInstrument {
-                kind: ApInstrumentType::OlmSession,
-                id: None,
-                content,
-                hash,
-                uuid: None,
-                name: None,
-                url: None,
-                mutation_of: None,
-                conversation: None,
-                activity: None
-            }
-        )
+        Ok(ApInstrument {
+            kind: ApInstrumentType::OlmSession,
+            id: None,
+            content,
+            hash,
+            uuid: None,
+            name: None,
+            url: None,
+            mutation_of: None,
+            conversation: None,
+            activity: None,
+        })
     }
 }
 
-pub async fn get_olm_session(id: String) -> Option<String> {
-    authenticated(
-        move |_state: EnigmatickState, _profile: Profile| async move {
-            let id = urlencoding::encode(&id).to_string();
-            let url = format!("/api/instruments/olm-session?id={id}");
+pub async fn get_olm_session(conversation: String) -> Result<Session> {
+    let conversation = urlencoding::encode(&conversation).to_string();
+    let url = format!("/api/instruments/olm-session?conversation={conversation}");
 
-            send_get(None, url, "application/activity+json".to_string()).await
-        },
-    )
-    .await
+    let session = send_get(None, url, "application/activity+json".to_string())
+        .await
+        .ok_or(anyhow!("Failed to retrieve session"))?;
+
+    let key = &*get_key()?;
+
+    Ok(SessionPickle::from_encrypted(&session, key.try_into()?)?.into())
 }
 
 // Below here is mostly legacy
@@ -177,7 +186,7 @@ impl From<PublicKeyInstrument> for ApInstrument {
             url: None,
             mutation_of: None,
             conversation: None,
-            activity: None
+            activity: None,
         }
     }
 }

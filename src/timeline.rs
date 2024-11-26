@@ -241,9 +241,10 @@ pub async fn get_timeline(
                 }
 
                 if !instruments.is_empty() {
+                    instruments.append(&mut vec![ApInstrument::try_from(account).ok()?]);
                     update_instruments(instruments.clone()).await;
                 }
-                
+
                 Some(instruments)
             } else {
                 None
