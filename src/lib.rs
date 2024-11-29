@@ -10,7 +10,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{cmp::Ordering, fmt::{self, Debug}};
 use wasm_bindgen::prelude::*;
-use wasm_bindgen_futures::future_to_promise;
 
 pub mod accept;
 pub mod activitypub;

@@ -1,8 +1,7 @@
 use js_sys::Promise;
 use std::collections::HashMap;
-use std::sync::{Mutex, Arc};
+use std::sync::Mutex;
 use wasm_bindgen_futures::{future_to_promise, JsFuture};
-use futures::{Future, FutureExt};
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]
@@ -21,11 +20,11 @@ impl EnigmatickCache {
     }
 
     pub fn get(&self, key: &str) -> Option<Promise> {
-        self.store.lock().unwrap().get(key).cloned()
+        self.store.lock().ok()?.get(key).cloned()
     }
 
     pub fn set(&self, key: &str, value: Promise) {
-        self.store.lock().unwrap().insert(key.to_string(), value);
+        self.store.lock().map(|mut x| x.insert(key.to_string(), value)).ok();
     }
 }
 

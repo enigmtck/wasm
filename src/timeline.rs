@@ -1,9 +1,9 @@
 use std::collections::HashMap;
 
 use crate::{
-    authenticated, decrypt, error, get_hash, get_olm_account, get_session, get_state, log,
+    authenticated, decrypt, get_olm_account, get_state, log,
     send_get, send_post, ActivityPub, ApActivity, ApCollection, ApCreate, ApInstrument, ApNote,
-    ApObject, EnigmatickState, Ephemeral, MaybeReference, OlmSession, Profile,
+    ApObject, EnigmatickState, MaybeReference, Profile,
 };
 use gloo_net::http::Request;
 use serde_json::json;
@@ -14,6 +14,7 @@ use vodozemac::{
     Curve25519PublicKey,
 };
 use wasm_bindgen::prelude::{wasm_bindgen, JsValue};
+use anyhow::anyhow;
 
 pub fn convert_hashtags_to_query_string(hashtags: &[String]) -> String {
     hashtags
@@ -31,6 +32,7 @@ pub async fn get_timeline(
     view: String,
     hashtags: JsValue,
 ) -> Option<String> {
+    log("IN get_timeline");
     let state = get_state();
 
     let hashtags: Vec<String> = serde_wasm_bindgen::from_value(hashtags).unwrap_or_default();
@@ -218,7 +220,7 @@ pub async fn get_timeline(
             },
         )
         .await
-    };
+    }
 
     async fn process_encrypted_notes(account: &mut Account) -> Option<Vec<ApInstrument>> {
         if let Some(text) = retrieve_encrypted_notes().await {
@@ -255,6 +257,7 @@ pub async fn get_timeline(
     }
 
     if state.authenticated {
+        log("IN authenticated");
         authenticated(
             move |_state: EnigmatickState, profile: Profile| async move {
                 let username = profile.username;
@@ -339,6 +342,7 @@ pub async fn get_timeline(
         )
         .await
     } else {
+        log("IN NOT authenticated");
         let resp = Request::get(&format!(
             "/inbox?limit={limit}{position}&view=global{hashtags}"
         ))
@@ -349,11 +353,21 @@ pub async fn get_timeline(
 
         let text = resp.text().await.ok()?;
         log(&text);
-        if let ApObject::CollectionPage(object) = serde_json::from_str(&text).ok()? {
+        if let ApObject::CollectionPage(object) = serde_json::from_str(&text)
+            .map_err(|e| {
+                log(&format!("FAILED TO CONVERT TEXT TO COLLECTION: {e:#?}"));
+                anyhow!("FAILED TO CONVERT TEXT TO COLLECTION: {e:#?}")
+            })
+            .ok()?
+        {
             //object.ordered_items.map(|items| serde_json::to_string(&items).unwrap())
-            serde_json::to_string(&object).ok()
+            log("OBJECT!");
+            
+            let object = serde_json::to_string(&object).ok();
+            log(&format!("{object:#?}"));
+            object
         } else {
-            error(&format!("FAILED TO CONVERT TEXT TO COLLECTION\n{text:#}"));
+            log(&format!("FAILED TO CONVERT TEXT TO COLLECTION\n{text:#}"));
             None
         }
     }

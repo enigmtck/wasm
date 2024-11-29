@@ -1,3 +1,5 @@
+extern crate console_error_panic_hook;
+
 use std::collections::HashMap;
 use std::error::Error;
 
@@ -70,6 +72,8 @@ impl Default for EnigmatickState {
 #[wasm_bindgen]
 impl EnigmatickState {
     pub fn new() -> EnigmatickState {
+        console_error_panic_hook::set_once();
+        
         EnigmatickState::default()
     }
 

@@ -1,18 +1,18 @@
 use std::borrow::Borrow;
 
-use crate::{encrypt, get_hash};
+use crate::{encrypt, get_hash, get_remote_keys, get_state, SendParams};
 use anyhow::{anyhow, Result};
 use base64::{engine::general_purpose, engine::Engine as _};
 use serde::{Deserialize, Serialize};
 use vodozemac::{
-    olm::{Account, Session, SessionPickle},
+    olm::{Account, AccountPickle, Session, SessionConfig, SessionPickle},
     Curve25519PublicKey,
 };
 use wasm_bindgen::prelude::wasm_bindgen;
 
 use crate::{
-    authenticated, decrypt, get_actor_from_webfinger, get_key, log, send_get, send_post, ApActor,
-    ApContext, EnigmatickState, MaybeMultiple, Profile,
+    authenticated, decrypt, get_actor_from_webfinger, get_key, log, send_get, send_post,
+    ActivityPub, ApContext, ApObject, EnigmatickState, MaybeMultiple, Profile,
 };
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd)]
@@ -158,17 +158,89 @@ impl TryFrom<Session> for ApInstrument {
     }
 }
 
+pub async fn create_olm_session(params: &mut SendParams) -> Result<Session> {
+    let state = get_state();
+
+    let (webfinger, _id) = params
+        .recipients
+        .iter()
+        .last()
+        .ok_or(anyhow!("webfinger must be Some"))?;
+    
+    let keys = get_remote_keys(webfinger.clone())
+        .await
+        .ok_or(anyhow!("keys must be Some"))?;
+
+    log(&format!("{keys:#?}"));
+
+    let (one_time_key, identity_key) = keys
+        .items
+        .map(|items| {
+            items
+                .into_iter()
+                .fold((None, None), |(one_time, identity), item| match item {
+                    ActivityPub::Object(ApObject::Instrument(instrument)) => {
+                        match instrument.kind {
+                            ApInstrumentType::OlmOneTimeKey if one_time.is_none() => {
+                                (instrument.content, identity)
+                            }
+                            ApInstrumentType::OlmIdentityKey if identity.is_none() => {
+                                (one_time, instrument.content)
+                            }
+                            _ => (one_time, identity),
+                        }
+                    }
+                    _ => (one_time, identity),
+                })
+        })
+        .unwrap_or((None, None));
+
+    let identity_key = identity_key.ok_or(anyhow!("identity_key must be Some"))?;
+    let one_time_key = one_time_key.ok_or(anyhow!("one_time_key must be Some"))?;
+    let identity_key =
+        Curve25519PublicKey::from_base64(&identity_key).map_err(anyhow::Error::msg)?;
+    let one_time_key =
+        Curve25519PublicKey::from_base64(&one_time_key).map_err(anyhow::Error::msg)?;
+    let pickled_account = state
+        .get_olm_pickled_account()
+        .ok_or(anyhow!("pickled_account must be Some"))?;
+
+    let original_account_hash = get_hash(pickled_account.clone().into_bytes()).unwrap();
+
+    let pickled_account =
+        serde_json::from_str::<AccountPickle>(&pickled_account).map_err(anyhow::Error::msg)?;
+
+    let account = Account::from(pickled_account);
+
+    let session = account.create_outbound_session(SessionConfig::version_2(), identity_key, one_time_key);
+
+    params.set_olm_account(
+        ApInstrument::try_from(&account)?
+            .set_mutation_of(original_account_hash)
+            .clone(),
+    );
+
+    params.set_olm_identity_key(ApInstrument::from((
+        ApInstrumentType::OlmIdentityKey,
+        account.curve25519_key(),
+    )));
+
+    Ok(session)
+}
+
 pub async fn get_olm_session(conversation: String) -> Result<Session> {
     let conversation = urlencoding::encode(&conversation).to_string();
     let url = format!("/api/instruments/olm-session?conversation={conversation}");
 
-    let session = send_get(None, url, "application/activity+json".to_string())
+    let instrument_str = send_get(None, url, "application/activity+json".to_string())
         .await
         .ok_or(anyhow!("Failed to retrieve session"))?;
 
-    let key = &*get_key()?;
+    let instrument: ApInstrument = serde_json::from_str(&instrument_str)?;
+    let content = instrument.content.ok_or(anyhow!("Olm Session Instrument must have content"))?;
 
-    Ok(SessionPickle::from_encrypted(&session, key.try_into()?)?.into())
+    let key = &*get_key()?;
+    Ok(SessionPickle::from_encrypted(&content, key.try_into()?)?.into())
 }
 
 // Below here is mostly legacy

@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use crate::{add_one_time_keys, authenticated, encrypt, get_hash, get_state, log, send_get, ApCollection, EnigmatickState, OtkUpdateParams, Profile};
+use crate::{add_one_time_keys, authenticated, get_hash, get_state, log, send_get, ApCollection, EnigmatickState, OtkUpdateParams, Profile};
 use serde::{Deserialize, Serialize};
 use vodozemac::olm::{Account, AccountPickle, OlmMessage, Session, SessionConfig, SessionPickle};
 use vodozemac::{Curve25519PublicKey, KeyId};

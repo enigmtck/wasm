@@ -9,7 +9,7 @@ use vodozemac::olm::Account;
 use wasm_bindgen::prelude::wasm_bindgen;
 
 use crate::{
-    authenticated, decrypt, derive_key, encode_derived_key, encrypt, error, get_hash, get_key_pair, get_state, log, send_get, send_post, update_state, update_state_password, upload_file, ApActor, ApInstrument, ApObject, EnigmatickState
+    authenticated, decrypt, derive_key, encode_derived_key, encrypt, get_hash, get_key_pair, get_state, log, send_get, send_post, update_state, update_state_password, upload_file, ApActor, ApInstrument, EnigmatickState
 };
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

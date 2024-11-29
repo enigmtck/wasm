@@ -1,6 +1,5 @@
 use core::fmt;
 use std::fmt::Debug;
-use chrono::{DateTime, Utc};
 
 use serde::{Deserialize, Serialize};
 
@@ -39,11 +38,4 @@ pub struct ApCreate {
 
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ephemeral: Option<Ephemeral>,
-}
-
-pub struct EncryptedMessage {
-    actor: ApAddress,
-    to: ApAddress,
-    message: String,
-    instruments: Vec<ApInstrument>
 }

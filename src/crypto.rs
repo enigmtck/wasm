@@ -11,7 +11,7 @@ use wasm_bindgen::prelude::wasm_bindgen;
 use anyhow::{Result, anyhow};
 
 use crate::{
-    authenticated, date_now, get_one_time_keys, get_state, send_get, ApCollection, EnigmatickState,
+    date_now, get_state, EnigmatickState,
     Method, Profile,
 };
 

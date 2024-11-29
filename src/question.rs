@@ -1,9 +1,8 @@
-use std::collections::HashMap;
 
 use chrono::{DateTime, Utc};
 use serde::{Serialize, Deserialize};
 
-use crate::{ApActor, ApAddress, ApAttachment, ApCollectionType, ApContext, ApNoteType, ApTag, Ephemeral, MaybeMultiple, Metadata, OrdValue};
+use crate::{ApAddress, ApAttachment, ApCollectionType, ApContext, ApNoteType, ApTag, Ephemeral, MaybeMultiple, OrdValue};
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd)]
 pub enum ApQuestionType {

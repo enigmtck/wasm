@@ -1,6 +1,6 @@
 [toolchain]
 profile = "default"
-channel = "nightly-2023-06-15"
+channel = "nightly"
 
 targets = [
     "wasm32-unknown-unknown", # for repl_wasm

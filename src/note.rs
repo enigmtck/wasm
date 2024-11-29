@@ -4,23 +4,15 @@ use std::{
 };
 
 use anyhow::Result;
-use base64::{engine::general_purpose, engine::Engine as _};
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use gloo_net::http::Request;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
-use vodozemac::{
-    olm::{Account, AccountPickle, SessionConfig, SessionPickle},
-    Curve25519PublicKey,
-};
 use wasm_bindgen::prelude::wasm_bindgen;
 
 use crate::{
-    authenticated, encrypt, error, get_actor_from_webfinger, get_hash, get_identity_public_key,
-    get_key, get_remote_keys, get_state, get_webfinger_from_id, log, resolve_processed_item,
-    send_get, send_post, ActivityPub, ApActor, ApActorTerse, ApAddress, ApAttachment, ApCollection,
-    ApContext, ApFlexible, ApInstrument, ApInstrumentType, ApMention, ApMentionType, ApObject,
-    ApTag, EnigmatickState, Ephemeral, MaybeMultiple, OrdValue, Profile,
+    authenticated, create_olm_session, error, get_actor_from_webfinger, get_olm_session, get_state,
+    get_webfinger_from_id, log, resolve_processed_item, send_get, send_post, ApAddress, ApAttachment, ApCollection, ApContext, ApInstrument, ApMention, ApMentionType, ApObject, ApTag, EnigmatickState, Ephemeral,
+    MaybeMultiple, OrdValue, Profile,
 };
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd)]
@@ -267,7 +259,8 @@ pub async fn get_note(id: String) -> Option<String> {
 pub struct SendParams {
     attributed_to: String,
     // @name@example.com -> https://example.com/user/name
-    recipients: HashMap<String, String>,
+    #[wasm_bindgen(skip)]
+    pub recipients: HashMap<String, String>,
 
     // https://server/user/username - used for EncryptedNotes where tags
     // are undesirable
@@ -311,7 +304,7 @@ impl SendParams {
         self.clone()
     }
 
-    fn set_olm_identity_key(&mut self, instrument: ApInstrument) -> Self {
+    pub fn set_olm_identity_key(&mut self, instrument: ApInstrument) -> Self {
         self.olm_identity_key = Some(instrument);
         self.clone()
     }
@@ -321,7 +314,7 @@ impl SendParams {
         self.clone()
     }
 
-    fn set_olm_account(&mut self, instrument: ApInstrument) -> Self {
+    pub fn set_olm_account(&mut self, instrument: ApInstrument) -> Self {
         self.olm_account = Some(instrument);
         self.clone()
     }
@@ -415,92 +408,36 @@ impl SendParams {
     }
 }
 
-pub async fn encrypt_note(mut params: SendParams) -> Result<SendParams> {
-    let state = get_state();
+pub async fn encrypt_note(params: &mut SendParams) -> Result<()> {
+    let mut session = if params.conversation.is_some() {
+        get_olm_session(params.conversation.clone().unwrap()).await?
+    } else {
+        create_olm_session(params).await?
+    };
 
-    if params.recipients.len() == 1 && state.is_authenticated() {
-        if let Some((webfinger, id)) = params.recipients.iter().last() {
-            let keys = get_remote_keys(webfinger.clone()).await;
+    log(&format!("Olm Session\n{session:#?}"));
 
-            if let Some(keys) = keys {
-                log(&format!("{keys:#?}"));
+    params.set_vault_item(params.get_content().clone().try_into()?);
+    params.set_content(
+        serde_json::to_string(&session.encrypt(params.get_content()))
+            .map_err(anyhow::Error::msg)?,
+    );
+    params.set_olm_session(ApInstrument::try_from(session)?);
 
-                let (one_time_key, identity_key) = keys
-                    .items
-                    .map(|items| {
-                        items.into_iter().fold(
-                            (None, None),
-                            |(one_time, identity), item| match item {
-                                ActivityPub::Object(ApObject::Instrument(instrument)) => {
-                                    match instrument.kind {
-                                        ApInstrumentType::OlmOneTimeKey if one_time.is_none() => {
-                                            (instrument.content, identity)
-                                        }
-                                        ApInstrumentType::OlmIdentityKey if identity.is_none() => {
-                                            (one_time, instrument.content)
-                                        }
-                                        _ => (one_time, identity),
-                                    }
-                                }
-                                _ => (one_time, identity),
-                            },
-                        )
-                    })
-                    .unwrap_or((None, None));
-
-                if let (Some(identity_key), Some(one_time_key)) = (identity_key, one_time_key) {
-                    let identity_key = Curve25519PublicKey::from_base64(&identity_key)
-                        .map_err(anyhow::Error::msg)?;
-                    let one_time_key = Curve25519PublicKey::from_base64(&one_time_key)
-                        .map_err(anyhow::Error::msg)?;
-                    if let Some(pickled_account) = state.get_olm_pickled_account() {
-                        let original_account_hash =
-                            get_hash(pickled_account.clone().into_bytes()).unwrap();
-
-                        let pickled_account =
-                            serde_json::from_str::<AccountPickle>(&pickled_account)
-                                .map_err(anyhow::Error::msg)?;
-
-                        let account = Account::from(pickled_account);
-                        params.set_olm_account(
-                            ApInstrument::try_from(&account)?
-                                .set_mutation_of(original_account_hash)
-                                .clone(),
-                        );
-
-                        let mut outbound = account.create_outbound_session(
-                            SessionConfig::version_2(),
-                            identity_key,
-                            one_time_key,
-                        );
-
-                        params.set_vault_item(params.get_content().clone().try_into()?);
-                        params.set_content(
-                            serde_json::to_string(&outbound.encrypt(params.get_content()))
-                                .map_err(anyhow::Error::msg)?,
-                        );
-                        params.set_olm_session(ApInstrument::try_from(outbound)?);
-                        params.set_olm_identity_key(ApInstrument::from((
-                            ApInstrumentType::OlmIdentityKey,
-                            account.curve25519_key(),
-                        )));
-
-                        params.set_encrypted();
-
-                        log(&format!("SendParams\n{params:#?}"));
-                    }
-                }
-            }
-        }
-    }
-
-    Ok(params.clone())
+    Ok(())
 }
 
 #[wasm_bindgen]
-pub async fn send_note(params: SendParams) -> bool {
+pub async fn send_note(params: &mut SendParams) -> bool {
     authenticated(move |state: EnigmatickState, profile: Profile| async move {
-        let params = encrypt_note(params).await.unwrap();
+        log(&format!("SendParams before encrypt\n{params:#?}"));
+
+        if params.is_encrypted {
+            encrypt_note(params).await.unwrap();
+        }
+
+        log(&format!("SendParams after encrypt\n{params:#?}"));
+
         let outbox = format!("/user/{}/outbox", profile.username.clone());
 
         let id = format!(
@@ -508,17 +445,17 @@ pub async fn send_note(params: SendParams) -> bool {
             state.server_url.unwrap(),
             profile.username.clone()
         );
-        let mut note = ApNote::from(params);
+        let mut note = ApNote::from(params.clone());
         note.attributed_to = id.into();
 
         log(&format!("NOTE\n{}", serde_json::to_string(&note).unwrap()));
+
         send_post(
             outbox,
             serde_json::to_string(&note).unwrap(),
             "application/activity+json".to_string(),
         )
         .await
-        //Some("".to_string())
     })
     .await
     .is_some()
