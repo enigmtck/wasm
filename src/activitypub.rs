@@ -31,9 +31,9 @@ pub enum ApEmojiType {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ApHashtag {
     #[serde(rename = "type")]
-    kind: ApHashtagType,
-    name: String,
-    href: String,
+    pub(crate) kind: ApHashtagType,
+    pub(crate) name: String,
+    pub(crate) href: String,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]

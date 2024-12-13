@@ -1,11 +1,11 @@
 use gloo_net::http::Request;
 use wasm_bindgen::prelude::wasm_bindgen;
 
-use crate::{ ApObject, log};
+use crate::{get_state, log, send_get, ApObject};
 
 // fn extract_outbox_elements(url: String) -> (Option<String>, Option<String>, Option<String>, Option<String>) {
 //     let state = get_state();
-    
+
 //     let result = state.server_url.clone().and_then(|server_url| {
 //         log(&format!("OUTBOX {url}"));
 
@@ -15,7 +15,7 @@ use crate::{ ApObject, log};
 //         let captures = re.captures(&url).unwrap();
 
 //         log(&format!("CAPTURES {captures:#?}"));
-        
+
 //         if captures.len() == 5 {
 //             Some((
 //                 captures.get(1).map(|x| x.as_str().to_string()),
@@ -32,31 +32,41 @@ use crate::{ ApObject, log};
 // }
 
 #[wasm_bindgen]
-pub async fn get_outbox(username: String, kind: Option<String>, timestamp: Option<String>) -> Option<String> {
+pub async fn get_outbox(
+    username: String,
+    kind: Option<String>,
+    timestamp: Option<String>,
+) -> Option<String> {
     //log(&format!("REQUEST {username}"));
     //let (username, limit, kind, timestamp) = extract_outbox_elements(url);
 
-    log(&format!("USERNAME {username:#?} KIND {kind:#?} TIMESTAMP {timestamp:#?}"));
-    
+    log(&format!(
+        "USERNAME {username:#?} KIND {kind:#?} TIMESTAMP {timestamp:#?}"
+    ));
+
     let outbox = match (kind, timestamp) {
-        (Some(kind), Some(timestamp)) => {
-            Some(format!("/user/{username}/outbox?page=true&{kind}={timestamp}"))
-        },
+        (Some(kind), Some(timestamp)) => Some(format!(
+            "/user/{username}/outbox?page=true&{kind}={timestamp}"
+        )),
         (None, None) => Some(format!("/user/{username}/outbox?page=true")),
-        _ => None
+        _ => None,
     };
 
     log(&format!("OUTBOX {outbox:#?}"));
 
-    let resp = Request::get(&outbox?)
-        .header("Content-Type", "application/activity+json")
-        .send()
-        .await
-        .ok()?;
-    
-    if let Ok(ApObject::CollectionPage(object)) = resp.json().await {
-        serde_json::to_string(&object).ok()
+    if get_state().authenticated {
+        send_get(None, outbox?, "application/activity+json".to_string()).await
     } else {
-        None
+        let resp = Request::get(&outbox?)
+            .header("Content-Type", "application/activity+json")
+            .send()
+            .await
+            .ok()?;
+
+        if let Ok(ApObject::CollectionPage(object)) = resp.json().await {
+            serde_json::to_string(&object).ok()
+        } else {
+            None
+        }
     }
 }

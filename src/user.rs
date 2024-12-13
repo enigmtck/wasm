@@ -43,6 +43,8 @@ pub struct Profile {
     pub client_private_key: Option<String>,
     pub olm_pickled_account: Option<String>,
     pub olm_identity_key: Option<String>,
+    pub followers: Option<String>,
+    pub following: Option<String>,
 }
 
 #[wasm_bindgen]

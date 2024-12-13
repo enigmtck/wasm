@@ -162,7 +162,7 @@ pub async fn create_olm_session(params: &mut SendParams) -> Result<Session> {
     let state = get_state();
 
     let (webfinger, _id) = params
-        .recipients
+        .mentions
         .iter()
         .last()
         .ok_or(anyhow!("webfinger must be Some"))?;
@@ -229,13 +229,21 @@ pub async fn create_olm_session(params: &mut SendParams) -> Result<Session> {
 }
 
 pub async fn get_olm_session(conversation: String) -> Result<Session> {
+    log("in get_olm_session");
     let conversation = urlencoding::encode(&conversation).to_string();
     let url = format!("/api/instruments/olm-session?conversation={conversation}");
 
+    log(&url);
+
     let instrument_str = send_get(None, url, "application/activity+json".to_string())
         .await
-        .ok_or(anyhow!("Failed to retrieve session"))?;
+        .ok_or_else(|| {
+            log("failed to retrieve olm-session");
+            anyhow!("Failed to retrieve session")
+        })?;
 
+    log(&instrument_str);
+    
     let instrument: ApInstrument = serde_json::from_str(&instrument_str)?;
     let content = instrument.content.ok_or(anyhow!("Olm Session Instrument must have content"))?;
 

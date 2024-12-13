@@ -163,6 +163,13 @@ pub fn derive_key(password_str: String, encoded_salt: String) -> Result<SecretKe
     Ok(kdf::derive_key(&password, &salt, 3, 1 << 4, 32)?)
 }
 
+#[wasm_bindgen]
+pub fn decrypt_text(
+    encoded_data: String
+) -> String {
+    decrypt(None, encoded_data).unwrap_or_default()
+}
+
 pub fn decrypt(
     derived_key: Option<String>,
     encoded_data: String,

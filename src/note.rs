@@ -10,9 +10,11 @@ use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::wasm_bindgen;
 
 use crate::{
-    authenticated, create_olm_session, error, get_actor_from_webfinger, get_olm_session, get_state,
-    get_webfinger_from_id, log, resolve_processed_item, send_get, send_post, ApAddress, ApAttachment, ApCollection, ApContext, ApInstrument, ApMention, ApMentionType, ApObject, ApTag, EnigmatickState, Ephemeral,
-    MaybeMultiple, OrdValue, Profile,
+    authenticated, create_olm_session, error, get_actor, get_actor_cached,
+    get_actor_from_webfinger, get_olm_session, get_state, get_webfinger_from_id, log,
+    resolve_processed_item, send_get, send_post, ApAddress, ApAttachment, ApCollection, ApContext,
+    ApHashtag, ApHashtagType, ApInstrument, ApMention, ApMentionType, ApObject, ApTag,
+    EnigmatickState, Ephemeral, MaybeMultiple, OrdValue, Profile,
 };
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd)]
@@ -93,6 +95,124 @@ impl ApNote {
     pub fn is_encrypted(&self) -> bool {
         matches!(self.kind, ApNoteType::EncryptedNote)
     }
+
+    pub async fn from_params(mut params: SendParams) -> Self {
+        log(&format!("params\n{params:#?}"));
+        let state = get_state();
+        let mut encrypted = false;
+
+        let mut mentions = params
+            .mentions
+            .iter()
+            .map(|(x, (y, _))| {
+                ApTag::Mention(ApMention {
+                    kind: ApMentionType::Mention,
+                    name: x.to_string(),
+                    href: Some(y.to_string()),
+                    value: None,
+                })
+            })
+            .collect::<Vec<ApTag>>();
+
+        let mut tag = params
+            .hashtags
+            .iter()
+            .map(|x| {
+                ApTag::HashTag(ApHashtag {
+                    kind: ApHashtagType::Hashtag,
+                    name: x.to_string(),
+                    href: format!(
+                        "{}/tags/{}",
+                        state.server_url.clone().unwrap_or_default(),
+                        x.replace('#', "")
+                    ),
+                })
+            })
+            .collect::<Vec<ApTag>>();
+
+        tag.append(&mut mentions);
+
+        let mut to: Vec<(ApAddress, bool)> = vec![];
+        let mut cc: Vec<ApAddress> = vec![];
+
+        if params.is_public {
+            to.push((ApAddress::get_public(), false));
+
+            if let Some(profile) = state.get_profile() {
+                if let Some(followers) = profile.followers {
+                    cc.push(followers.into());
+                }
+            }
+
+            cc.extend(
+                params
+                    .clone()
+                    .mentions
+                    .into_values()
+                    .map(|(x, _)| x.into())
+                    .collect::<Vec<ApAddress>>(),
+            );
+        } else {
+            to.extend(
+                params
+                    .clone()
+                    .mentions
+                    .into_values()
+                    .map(|(x, y)| (x.into(), y))
+                    .collect::<Vec<(ApAddress, bool)>>(),
+            );
+
+            if to.len() == 1 && cc.is_empty() {
+                if let Some((_, enigmatick)) = to.first() {
+                    encrypted = *enigmatick;
+                    encrypt_note(&mut params).await.unwrap();
+                }
+            }
+        }
+
+        let instrument = {
+            if encrypted {
+                let instruments = params.get_instruments();
+
+                if instruments.is_empty() {
+                    None
+                } else {
+                    Some(MaybeMultiple::Multiple(instruments))
+                }
+            } else {
+                None
+            }
+        };
+
+        ApNote {
+            context: Some(ApContext::default()),
+            kind: if encrypted {
+                ApNoteType::EncryptedNote
+            } else {
+                ApNoteType::Note
+            },
+            to: MaybeMultiple::Multiple(to.iter().map(|(x, _)| x.clone()).collect()),
+            cc: Some(cc.into()),
+            tag: Some(tag),
+            attachment: {
+                if let Some(attachments) = params.attachments {
+                    if let Ok(attachments) = serde_json::from_str::<Vec<ApAttachment>>(&attachments)
+                    {
+                        Some(attachments)
+                    } else {
+                        Some(vec![])
+                    }
+                } else {
+                    Some(vec![])
+                }
+            },
+            content: params.content,
+            in_reply_to: params.in_reply_to,
+            conversation: params.conversation,
+            instrument,
+            ..Default::default()
+        }
+    }
 }
 
 impl Default for ApNote {
@@ -117,112 +237,6 @@ impl Default for ApNote {
             content_map: None,
             instrument: None,
             ephemeral: None,
-        }
-    }
-}
-
-impl From<SendParams> for ApNote {
-    fn from(params: SendParams) -> Self {
-        log(&format!("params\n{params:#?}"));
-
-        let tag = params
-            .recipients
-            .iter()
-            .map(|(x, y)| {
-                ApTag::Mention(ApMention {
-                    kind: ApMentionType::Mention,
-                    name: x.to_string(),
-                    href: Some(y.to_string()),
-                    value: None,
-                })
-            })
-            .collect::<Vec<ApTag>>();
-
-        let mut to: Vec<ApAddress> = vec![];
-        let mut cc: Vec<ApAddress> = vec![];
-
-        if params.is_public {
-            to.push(
-                "https://www.w3.org/ns/activitystreams#Public"
-                    .to_string()
-                    .into(),
-            );
-            cc.extend(
-                params
-                    .clone()
-                    .recipients
-                    .into_values()
-                    .map(ApAddress::Address)
-                    .collect::<Vec<ApAddress>>(),
-            );
-            cc.extend(
-                params
-                    .clone()
-                    .recipient_ids
-                    .into_iter()
-                    .map(ApAddress::Address)
-                    .collect::<Vec<ApAddress>>(),
-            );
-        } else {
-            to.extend(
-                params
-                    .clone()
-                    .recipients
-                    .into_values()
-                    .map(ApAddress::Address)
-                    .collect::<Vec<ApAddress>>(),
-            );
-            to.extend(
-                params
-                    .clone()
-                    .recipient_ids
-                    .into_iter()
-                    .map(ApAddress::Address)
-                    .collect::<Vec<ApAddress>>(),
-            );
-        }
-
-        let instrument = {
-            if params.is_encrypted {
-                let instruments = params.get_instruments();
-
-                if instruments.is_empty() {
-                    None
-                } else {
-                    Some(MaybeMultiple::Multiple(instruments))
-                }
-            } else {
-                None
-            }
-        };
-
-        ApNote {
-            context: Some(ApContext::default()),
-            kind: if params.is_encrypted {
-                ApNoteType::EncryptedNote
-            } else {
-                ApNoteType::Note
-            },
-            to: MaybeMultiple::Multiple(to),
-            cc: Some(cc.into()),
-            tag: Some(tag),
-            attachment: {
-                if let Some(attachments) = params.attachments {
-                    if let Ok(attachments) = serde_json::from_str::<Vec<ApAttachment>>(&attachments)
-                    {
-                        Some(attachments)
-                    } else {
-                        Some(vec![])
-                    }
-                } else {
-                    Some(vec![])
-                }
-            },
-            content: params.content,
-            in_reply_to: params.in_reply_to,
-            conversation: params.conversation,
-            instrument,
-            ..Default::default()
         }
     }
 }
@@ -259,12 +273,17 @@ pub async fn get_note(id: String) -> Option<String> {
 pub struct SendParams {
     attributed_to: String,
     // @name@example.com -> https://example.com/user/name
-    #[wasm_bindgen(skip)]
-    pub recipients: HashMap<String, String>,
+    // #[wasm_bindgen(skip)]
+    // pub recipients: HashMap<String, String>,
 
     // https://server/user/username - used for EncryptedNotes where tags
     // are undesirable
-    recipient_ids: Vec<String>,
+    //recipient_ids: Vec<String>,
+
+    // @name@example.com -> https://example.com/user/name
+    #[wasm_bindgen(skip)]
+    pub mentions: HashMap<String, (String, bool)>,
+    hashtags: Vec<String>,
     content: String,
     in_reply_to: Option<String>,
     conversation: Option<String>,
@@ -277,7 +296,6 @@ pub struct SendParams {
 
     resolves: Option<String>,
     is_public: bool,
-    is_encrypted: bool,
 }
 
 #[wasm_bindgen]
@@ -341,37 +359,47 @@ impl SendParams {
         instruments
     }
 
-    pub fn set_encrypted(&mut self) -> Self {
-        self.is_encrypted = true;
-        self.clone()
-    }
+    // pub fn set_encrypted(&mut self) -> Self {
+    //     self.is_encrypted = true;
+    //     self.clone()
+    // }
 
     pub fn set_public(&mut self) -> Self {
         self.is_public = true;
         self.clone()
     }
 
-    pub async fn add_recipient_id(&mut self, recipient_id: String, tag: bool) -> Self {
-        if tag {
-            if let Some(webfinger) = get_webfinger_from_id(recipient_id.clone()).await {
-                self.recipients.insert(webfinger, recipient_id);
-            }
-        } else {
-            self.recipient_ids.push(recipient_id);
-        }
+    // pub async fn add_recipient_id(&mut self, recipient_id: String, tag: bool) -> Self {
+    //     if tag {
+    //         if let Some(webfinger) = get_webfinger_from_id(recipient_id.clone()).await {
+    //             self.recipients.insert(webfinger, recipient_id);
+    //         }
+    //     } else {
+    //         self.recipient_ids.push(recipient_id);
+    //     }
 
+    //     self.clone()
+    // }
+
+    // // address: @user@domain.tld
+    // pub async fn add_address(&mut self, address: String) -> Self {
+    //     let actor = get_actor_from_webfinger(address.clone()).await;
+
+    //     if let Some(actor) = actor {
+    //         if let Some(id) = actor.id {
+    //             self.recipients.insert(address.clone(), id);
+    //         }
+    //     }
+    //     self.clone()
+    // }
+
+    pub fn set_hashtags(&mut self, hashtags: Vec<String>) -> Self {
+        self.hashtags = hashtags;
         self.clone()
     }
 
-    // address: @user@domain.tld
-    pub async fn add_address(&mut self, address: String) -> Self {
-        let actor = get_actor_from_webfinger(address.clone()).await;
-
-        if let Some(actor) = actor {
-            if let Some(id) = actor.id {
-                self.recipients.insert(address.clone(), id);
-            }
-        }
+    pub fn add_mention(&mut self, webfinger: String, id: String, enigmatick: bool) -> Self {
+        self.mentions.insert(webfinger, (id, enigmatick));
         self.clone()
     }
 
@@ -380,9 +408,9 @@ impl SendParams {
         self.clone()
     }
 
-    pub fn get_recipients(&self) -> String {
-        serde_json::to_string(&self.recipients).unwrap()
-    }
+    // pub fn get_recipients(&self) -> String {
+    //     serde_json::to_string(&self.recipients).unwrap()
+    // }
 
     pub fn get_content(&self) -> String {
         self.content.clone()
@@ -430,14 +458,6 @@ pub async fn encrypt_note(params: &mut SendParams) -> Result<()> {
 #[wasm_bindgen]
 pub async fn send_note(params: &mut SendParams) -> bool {
     authenticated(move |state: EnigmatickState, profile: Profile| async move {
-        log(&format!("SendParams before encrypt\n{params:#?}"));
-
-        if params.is_encrypted {
-            encrypt_note(params).await.unwrap();
-        }
-
-        log(&format!("SendParams after encrypt\n{params:#?}"));
-
         let outbox = format!("/user/{}/outbox", profile.username.clone());
 
         let id = format!(
@@ -445,7 +465,7 @@ pub async fn send_note(params: &mut SendParams) -> bool {
             state.server_url.unwrap(),
             profile.username.clone()
         );
-        let mut note = ApNote::from(params.clone());
+        let mut note = ApNote::from_params(params.clone()).await;
         note.attributed_to = id.into();
 
         log(&format!("NOTE\n{}", serde_json::to_string(&note).unwrap()));
@@ -461,39 +481,39 @@ pub async fn send_note(params: &mut SendParams) -> bool {
     .is_some()
 }
 
-#[wasm_bindgen]
-pub async fn send_encrypted_note(params: SendParams) -> bool {
-    authenticated(move |state: EnigmatickState, profile: Profile| async move {
-        log("IN send_encrypted_note");
+// #[wasm_bindgen]
+// pub async fn send_encrypted_note(params: SendParams) -> bool {
+//     authenticated(move |state: EnigmatickState, profile: Profile| async move {
+//         log("IN send_encrypted_note");
 
-        let outbox = format!("/user/{}/outbox", profile.username.clone());
+//         let outbox = format!("/user/{}/outbox", profile.username.clone());
 
-        let id = format!(
-            "{}/user/{}",
-            state.server_url.unwrap(),
-            profile.username.clone()
-        );
+//         let id = format!(
+//             "{}/user/{}",
+//             state.server_url.unwrap(),
+//             profile.username.clone()
+//         );
 
-        let mut encrypted_message = ApNote::from(params.clone());
-        encrypted_message.attributed_to = id.into();
+//         let mut encrypted_message = ApNote::from(params.clone());
+//         encrypted_message.attributed_to = id.into();
 
-        if send_post(
-            outbox,
-            serde_json::to_string(&encrypted_message).unwrap(),
-            "application/activity+json".to_string(),
-        )
-        .await
-        .is_some()
-        {
-            if let Some(resolves) = params.clone().resolves {
-                resolve_processed_item(resolves).await
-            } else {
-                None
-            }
-        } else {
-            None
-        }
-    })
-    .await
-    .is_some()
-}
+//         if send_post(
+//             outbox,
+//             serde_json::to_string(&encrypted_message).unwrap(),
+//             "application/activity+json".to_string(),
+//         )
+//         .await
+//         .is_some()
+//         {
+//             if let Some(resolves) = params.clone().resolves {
+//                 resolve_processed_item(resolves).await
+//             } else {
+//                 None
+//             }
+//         } else {
+//             None
+//         }
+//     })
+//     .await
+//     .is_some()
+// }
