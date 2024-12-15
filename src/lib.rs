@@ -8,7 +8,10 @@ use lazy_static::lazy_static;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::{cmp::Ordering, fmt::{self, Debug}};
+use std::{
+    cmp::Ordering,
+    fmt::{self, Debug},
+};
 use wasm_bindgen::prelude::*;
 
 pub mod accept;
@@ -319,8 +322,6 @@ impl fmt::Display for Method {
     }
 }
 
-// probably need to extract the path (without parameters) in the "url" below to standardize the signing (and make the relevant change on the server)
-// same goes for the send_get methods below
 pub async fn send_post(url: String, body: String, content_type: String) -> Option<String> {
     let signature = {
         let state = get_state();
@@ -346,7 +347,9 @@ pub async fn send_post(url: String, body: String, content_type: String) -> Optio
             .send()
             .await
             .ok()?
-            .status()
+            .text()
+            .await
+            .ok()?
             .to_string(),
     )
 }

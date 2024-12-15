@@ -456,7 +456,7 @@ pub async fn encrypt_note(params: &mut SendParams) -> Result<()> {
 }
 
 #[wasm_bindgen]
-pub async fn send_note(params: &mut SendParams) -> bool {
+pub async fn send_note(params: &mut SendParams) -> Option<String> {
     authenticated(move |state: EnigmatickState, profile: Profile| async move {
         let outbox = format!("/user/{}/outbox", profile.username.clone());
 
@@ -478,7 +478,6 @@ pub async fn send_note(params: &mut SendParams) -> bool {
         .await
     })
     .await
-    .is_some()
 }
 
 // #[wasm_bindgen]
