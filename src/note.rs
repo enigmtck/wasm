@@ -10,11 +10,10 @@ use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::wasm_bindgen;
 
 use crate::{
-    authenticated, create_olm_session, error, get_actor, get_actor_cached,
-    get_actor_from_webfinger, get_olm_session, get_state, get_webfinger_from_id, log,
-    resolve_processed_item, send_get, send_post, ApAddress, ApAttachment, ApCollection, ApContext,
-    ApHashtag, ApHashtagType, ApInstrument, ApMention, ApMentionType, ApObject, ApTag,
-    EnigmatickState, Ephemeral, MaybeMultiple, OrdValue, Profile,
+    authenticated, create_olm_session, error, get_olm_session, get_state, log, send_get, send_post,
+    ApAddress, ApAttachment, ApCollection, ApContext, ApHashtag, ApHashtagType, ApInstrument,
+    ApMention, ApMentionType, ApObject, ApTag, EnigmatickState, Ephemeral, MaybeMultiple, OrdValue,
+    Profile,
 };
 
 #[derive(Serialize, Deserialize, Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd)]
@@ -163,9 +162,12 @@ impl ApNote {
             );
 
             if to.len() == 1 && cc.is_empty() {
-                if let Some((_, enigmatick)) = to.first() {
+                if let Some((address, enigmatick)) = to.first() {
+                    log(&format!("Sending to single address : {address}"));
                     encrypted = *enigmatick;
-                    encrypt_note(&mut params).await.unwrap();
+                    if encrypted {
+                        encrypt_note(&mut params).await.unwrap();
+                    }
                 }
             }
         }
