@@ -19,7 +19,7 @@ impl fmt::Display for ApCreateType {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Debug, Ord, PartialOrd, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 #[serde(rename_all = "camelCase")]
 pub struct ApCreate {
     #[serde(rename = "@context")]
@@ -29,13 +29,21 @@ pub struct ApCreate {
     pub kind: ApCreateType,
     pub actor: ApAddress,
     pub to: MaybeMultiple<ApAddress>,
-    pub cc: Option<MaybeMultiple<ApAddress>>,
+    #[serde(skip_serializing_if = "MaybeMultiple::is_none")]
+    #[serde(default)]
+    pub cc: MaybeMultiple<ApAddress>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
     pub object: MaybeReference<ApObject>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub published: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub signature: Option<ApSignature>,
-    pub instrument: Option<MaybeMultiple<ApInstrument>>,
+    #[serde(skip_serializing_if = "MaybeMultiple::is_none")]
+    #[serde(default)]
+    pub instrument: MaybeMultiple<ApInstrument>,
 
+    // These are ephemeral attributes to facilitate client operations
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ephemeral: Option<Ephemeral>,
 }

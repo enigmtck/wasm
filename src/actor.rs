@@ -116,8 +116,9 @@ pub struct ApActor {
     pub featured: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub featured_tags: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub url: Option<MaybeMultiple<String>>,
+    #[serde(skip_serializing_if = "MaybeMultiple::is_none")]
+    #[serde(default)]
+    pub url: MaybeMultiple<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub manually_approves_followers: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -132,8 +133,9 @@ pub struct ApActor {
     pub icon: Option<ApImage>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub image: Option<ApImage>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub also_known_as: Option<MaybeMultiple<String>>,
+    #[serde(skip_serializing_if = "MaybeMultiple::is_none")]
+    #[serde(default)]
+    pub also_known_as: MaybeMultiple<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub discoverable: Option<bool>,
 
@@ -155,7 +157,7 @@ pub struct ApActorTerse {
     pub url: String,
     pub name: Option<String>,
     pub preferred_username: String,
-    pub tag: Vec<ApTag>,
+    pub tag: Option<Vec<ApTag>>,
     pub icon: Option<ApImage>,
 }
 

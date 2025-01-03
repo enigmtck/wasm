@@ -64,30 +64,21 @@ pub async fn get_timeline(
 
     fn find_session_instrument(create: &ApCreate) -> Option<ApInstrument> {
         create
-            .instrument
-            .clone()
-            .map(|instruments| instruments.multiple())
-            .unwrap_or_default()
+            .instrument.multiple()
             .into_iter()
             .find(|instrument| instrument.is_olm_session() && instrument.content.is_some())
     }
 
     fn find_vault_instrument(create: &ApCreate) -> Option<ApInstrument> {
         create
-            .instrument
-            .clone()
-            .map(|instruments| instruments.multiple())
-            .unwrap_or_default()
+            .instrument.multiple()
             .into_iter()
             .find(|instrument| instrument.is_vault_item() && instrument.content.is_some())
     }
 
     fn find_identity_key_instrument(create: &ApCreate) -> Option<ApInstrument> {
         create
-            .instrument
-            .clone()
-            .map(|instruments| instruments.multiple())
-            .unwrap_or_default()
+            .instrument.multiple()
             .into_iter()
             .find(|instrument| instrument.is_olm_identity_key() && instrument.content.is_some())
     }

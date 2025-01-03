@@ -6,13 +6,14 @@ use futures::Future;
 use gloo_net::http::Request;
 use lazy_static::lazy_static;
 use regex::Regex;
-use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde_json::{json, Value};
 use std::{
     cmp::Ordering,
     fmt::{self, Debug},
 };
 use wasm_bindgen::prelude::*;
+use anyhow::{anyhow, Result};
 
 pub mod accept;
 pub mod activitypub;
@@ -208,6 +209,83 @@ pub enum MaybeMultiple<T> {
     None,
 }
 
+impl<T: PartialEq> MaybeMultiple<T> {
+    fn is_none(&self) -> bool {
+        *self == MaybeMultiple::None
+    }
+}
+
+impl<T> From<Option<Vec<T>>> for MaybeMultiple<T> {
+    fn from(data: Option<Vec<T>>) -> Self {
+        match data {
+            Some(x) => MaybeMultiple::Multiple(x),
+            None => MaybeMultiple::None,
+        }
+    }
+}
+
+impl<T: DeserializeOwned> From<Option<Value>> for MaybeMultiple<T> {
+    fn from(data: Option<Value>) -> Self {
+        match data {
+            Some(value) => value.into(),
+            None => MaybeMultiple::None,
+        }
+    }
+}
+
+impl<T: DeserializeOwned> From<Value> for MaybeMultiple<T> {
+    fn from(data: Value) -> Self {
+        // First, try to convert to Vec<T>
+        if let Ok(vec_result) = serde_json::from_value::<Vec<T>>(data.clone()) {
+            MaybeMultiple::Multiple(vec_result)
+        }
+        // If Vec conversion fails, try single T
+        else if let Ok(single_result) = serde_json::from_value::<T>(data) {
+            MaybeMultiple::Single(single_result)
+        }
+        // If both conversions fail, return None
+        else {
+            MaybeMultiple::None
+        }
+    }
+}
+
+impl<T: Serialize> From<&MaybeMultiple<T>> for Option<Value> {
+    fn from(object: &MaybeMultiple<T>) -> Self {
+        match object {
+            MaybeMultiple::None => None,
+            _ => Some(json!(object)),
+        }
+    }
+}
+
+impl<T: Serialize> From<MaybeMultiple<T>> for Option<Value> {
+    fn from(object: MaybeMultiple<T>) -> Self {
+        match object {
+            MaybeMultiple::None => None,
+            _ => Some(json!(object)),
+        }
+    }
+}
+
+impl<T: Serialize> From<&MaybeMultiple<T>> for Value {
+    fn from(object: &MaybeMultiple<T>) -> Self {
+        json!(object)
+    }
+}
+
+impl<T: Serialize> From<MaybeMultiple<T>> for Value {
+    fn from(object: MaybeMultiple<T>) -> Self {
+        json!(object)
+    }
+}
+
+impl From<ApObject> for MaybeMultiple<ApObject> {
+    fn from(data: ApObject) -> Self {
+        MaybeMultiple::Single(data)
+    }
+}
+
 impl From<String> for MaybeMultiple<String> {
     fn from(data: String) -> Self {
         MaybeMultiple::Single(data)
@@ -221,17 +299,30 @@ impl<T> From<Vec<T>> for MaybeMultiple<T> {
 }
 
 impl<T: Clone> MaybeMultiple<T> {
-    pub fn single(&self) -> Option<T> {
+    pub fn map<U, F>(self, mut f: F) -> MaybeMultiple<U>
+    where
+        F: FnMut(T) -> U,
+    {
+        match self {
+            MaybeMultiple::Multiple(vec) => {
+                MaybeMultiple::Multiple(vec.into_iter().map(f).collect())
+            }
+            MaybeMultiple::Single(val) => MaybeMultiple::Single(f(val)),
+            MaybeMultiple::None => MaybeMultiple::None,
+        }
+    }
+
+    pub fn single(&self) -> Result<T> {
         match self {
             MaybeMultiple::Multiple(s) => {
                 if s.len() == 1 {
-                    Some(s[0].clone())
+                    Ok(s[0].clone())
                 } else {
-                    None
+                    Err(anyhow!("MaybeMultiple is Multiple"))
                 }
             }
-            MaybeMultiple::Single(s) => Some(s.clone()),
-            MaybeMultiple::None => None,
+            MaybeMultiple::Single(s) => Ok(s.clone()),
+            MaybeMultiple::None => Err(anyhow!("MaybeMultiple is None")),
         }
     }
 
@@ -242,6 +333,28 @@ impl<T: Clone> MaybeMultiple<T> {
                 vec![data.clone()]
             }
             MaybeMultiple::None => vec![],
+        }
+    }
+
+    pub fn extend(mut self, mut additional: Vec<T>) -> Self {
+        match self {
+            MaybeMultiple::Multiple(ref mut data) => {
+                data.append(&mut additional);
+                data.clone().into()
+            }
+            MaybeMultiple::Single(data) => {
+                additional.push(data.clone());
+                additional.clone().into()
+            }
+            MaybeMultiple::None => additional.clone().into(),
+        }
+    }
+
+    pub fn option(&self) -> Option<Vec<T>> {
+        match self {
+            MaybeMultiple::Multiple(v) => Some(v.clone()),
+            MaybeMultiple::Single(s) => Some(vec![s.clone()]),
+            MaybeMultiple::None => None,
         }
     }
 }

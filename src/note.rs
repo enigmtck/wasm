@@ -55,22 +55,25 @@ pub struct ApNote {
     #[serde(rename = "@context")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub context: Option<ApContext>,
-    pub tag: Option<Vec<ApTag>>,
+    #[serde(skip_serializing_if = "MaybeMultiple::is_none")]
+    #[serde(default)]
+    pub tag: MaybeMultiple<ApTag>,
     pub attributed_to: ApAddress,
     pub id: Option<String>,
     #[serde(rename = "type")]
     pub kind: ApNoteType,
-    //pub to: Vec<String>,
     pub to: MaybeMultiple<ApAddress>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
     pub published: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub cc: Option<MaybeMultiple<ApAddress>>,
+    #[serde(skip_serializing_if = "MaybeMultiple::is_none")]
+    #[serde(default)]
+    pub cc: MaybeMultiple<ApAddress>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub replies: Option<ApCollection>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub attachment: Option<Vec<ApAttachment>>,
+    #[serde(skip_serializing_if = "MaybeMultiple::is_none")]
+    #[serde(default)]
+    pub attachment: MaybeMultiple<ApAttachment>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub in_reply_to: Option<String>,
     pub content: String,
@@ -82,7 +85,11 @@ pub struct ApNote {
     pub conversation: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content_map: Option<OrdValue>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+
+    // We skip serializing here because 'instrument' doesn't belong
+    // on a Note object; it's here only to facilitate the Outbox action
+    // to move it to the Create activity.
+    #[serde(skip_serializing)]
     pub instrument: Option<MaybeMultiple<ApInstrument>>,
 
     // These are ephemeral attributes to facilitate client operations
@@ -130,6 +137,8 @@ impl ApNote {
             .collect::<Vec<ApTag>>();
 
         tag.append(&mut mentions);
+
+        let tag: MaybeMultiple<ApTag> = tag.into();
 
         let mut to: Vec<(ApAddress, bool)> = vec![];
         let mut cc: Vec<ApAddress> = vec![];
@@ -194,18 +203,18 @@ impl ApNote {
                 ApNoteType::Note
             },
             to: MaybeMultiple::Multiple(to.iter().map(|(x, _)| x.clone()).collect()),
-            cc: Some(cc.into()),
-            tag: Some(tag),
+            cc: cc.into(),
+            tag,
             attachment: {
                 if let Some(attachments) = params.attachments {
                     if let Ok(attachments) = serde_json::from_str::<Vec<ApAttachment>>(&attachments)
                     {
-                        Some(attachments)
+                        attachments.into()
                     } else {
-                        Some(vec![])
+                        vec![].into()
                     }
                 } else {
-                    Some(vec![])
+                    vec![].into()
                 }
             },
             content: params.content,
@@ -221,16 +230,16 @@ impl Default for ApNote {
     fn default() -> ApNote {
         ApNote {
             context: Some(ApContext::default()),
-            tag: None,
+            tag: MaybeMultiple::None,
             attributed_to: ApAddress::default(),
             id: None,
             kind: ApNoteType::Note,
             to: MaybeMultiple::Multiple(vec![]),
             url: None,
             published: Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
-            cc: None,
+            cc: MaybeMultiple::None,
             replies: None,
-            attachment: None,
+            attachment: MaybeMultiple::None,
             in_reply_to: None,
             content: String::new(),
             summary: None,

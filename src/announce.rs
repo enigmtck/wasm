@@ -31,7 +31,9 @@ pub struct ApAnnounce {
     pub actor: ApAddress,
     pub id: Option<String>,
     pub to: MaybeMultiple<ApAddress>,
-    pub cc: Option<MaybeMultiple<ApAddress>>,
+    #[serde(skip_serializing_if = "MaybeMultiple::is_none")]
+    #[serde(default)]
+    pub cc: MaybeMultiple<ApAddress>,
     pub published: String,
     pub object: MaybeReference<ApObject>,
 
@@ -51,7 +53,7 @@ impl ApAnnounce {
                 id,
                 object: MaybeReference::from(object),
                 to: MaybeMultiple::Multiple(vec![ApAddress::get_public()]),
-                cc: None,
+                cc: MaybeMultiple::None,
                 published: Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
                 ephemeral: None
             })
