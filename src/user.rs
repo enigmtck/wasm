@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use base64::{engine::general_purpose, engine::Engine as _};
 use gloo_net::http::Request;
+use jdt_activity_pub::ApAddress;
 use orion::{aead, kdf};
 use rsa::pkcs8::{EncodePrivateKey, EncodePublicKey, LineEnding};
 use serde::{Deserialize, Serialize};
@@ -31,6 +32,7 @@ pub struct Profile {
     pub created_at: String,
     pub updated_at: String,
     pub uuid: String,
+    pub id: ApAddress,
     pub username: String,
     pub display_name: String,
     #[wasm_bindgen(skip)]

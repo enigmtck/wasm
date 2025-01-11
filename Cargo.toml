@@ -10,16 +10,17 @@ crate-type = ["cdylib", "rlib"]
 
 [build]
 target = "wasm32-unknown-unknown"
+#rustflags = ["--cfg", "mls_build_async"]
 
 [dependencies]
-wasm-bindgen = { version = "0.2.95", features = ["serde-serialize"] }
+wasm-bindgen = { version = "0.2.99", features = ["serde-serialize"] }
 wasm-bindgen-futures = "0.4"
 chrono = { version = "0.4", features = ["serde", "wasmbind"] }
 gloo-net = { version = "0.2", features = ["json", "eventsource"] }
 serde = { version = "1", features = ["derive"] }
 serde-wasm-bindgen = "0.4"
 getrandom = { version = "0.2", features = ["js"] }
-rsa = "0.9"
+rsa = "0.9.7"
 rand = "0.8"
 sha2 = { version = "0.10", features = ["oid"] }
 base64 = "0.22"
@@ -39,6 +40,11 @@ anyhow = "1.0"
 futures = "0.3"
 vodozemac = "0.8.1"
 console_error_panic_hook = "0.1.7"
+openmls = { version = "0.6.0", features = ["js", "openmls_rust_crypto"] }
+openmls_rust_crypto = "0.3.0"
+openmls_basic_credential = { version = "0.3.0", features = ["clonable"] }
+serde_with = "3.12.0"
+jdt_activity_pub = "0.1.18"
 
 [dependencies.web-sys]
 version = "0.3.60"

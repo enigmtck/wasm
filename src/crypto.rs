@@ -191,6 +191,26 @@ pub fn decrypt(
     Ok(decrypted_str)
 }
 
+pub fn decrypt_bytes(
+    derived_key: Option<String>,
+    encoded_data: String,
+) -> Result<Vec<u8>, Box<dyn Error>> {
+    let derived_key = derived_key.unwrap_or(
+        get_state()
+            .derived_key
+            .clone()
+            .ok_or("derived_key missing")?,
+    );
+    let decoded_key = general_purpose::STANDARD.decode(derived_key)?;
+    let secret_key = SecretKey::from_slice(&decoded_key)?;
+    let decrypted = aead::open(
+        &secret_key,
+        &general_purpose::STANDARD.decode(encoded_data).unwrap(),
+    )?;
+
+    Ok(decrypted)
+}
+
 pub fn encrypt(derived_key: Option<String>, data: String) -> Result<String> {
     let derived_key = derived_key.unwrap_or(
         get_state()
@@ -203,6 +223,20 @@ pub fn encrypt(derived_key: Option<String>, data: String) -> Result<String> {
     let encrypted = aead::seal(&secret_key, data.as_bytes())?;
 
     Ok(general_purpose::STANDARD.encode(encrypted))
+}
+
+pub fn encrypt_bytes(derived_key: Option<String>, data: &[u8]) -> Result<Vec<u8>> {
+    let derived_key = derived_key.unwrap_or(
+        get_state()
+            .derived_key
+            .clone()
+            .ok_or(anyhow!("derived_key missing"))?,
+    );
+    let decoded_key = general_purpose::STANDARD.decode(derived_key)?;
+    let secret_key = SecretKey::from_slice(&decoded_key)?;
+    let encrypted = aead::seal(&secret_key, data)?;
+
+    Ok(encrypted)
 }
 
 pub fn get_key() -> Result<Vec<u8>> {

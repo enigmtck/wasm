@@ -34,6 +34,7 @@ pub mod invite;
 pub mod join;
 pub mod keystore;
 pub mod like;
+pub mod mls;
 pub mod note;
 pub mod olm;
 pub mod outbox;
