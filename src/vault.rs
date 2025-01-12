@@ -1,8 +1,9 @@
 use base64::{engine::general_purpose, engine::Engine as _};
+use jdt_activity_pub::ApCollection;
 use serde::{Serialize, Deserialize};
 use wasm_bindgen::prelude::wasm_bindgen;
 
-use crate::{authenticated, EnigmatickState, Profile, send_post, encrypt, resolve_processed_item, get_hash, log, send_get, ApCollection, error};
+use crate::{authenticated, EnigmatickState, Profile, send_post, encrypt, resolve_processed_item, get_hash, log, send_get, error};
 
 
 #[wasm_bindgen]

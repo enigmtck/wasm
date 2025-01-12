@@ -247,3 +247,10 @@ pub fn get_key() -> Result<Vec<u8>> {
 
     general_purpose::STANDARD.decode(derived_key).map_err(anyhow::Error::msg)
 }
+
+// Add Send + Sync bounds
+pub static ENCRYPT_FN: &'static (dyn Fn(Vec<u8>) -> Vec<u8> + Send + Sync) =
+    &|data: Vec<u8>| -> Vec<u8> { encrypt_bytes(None, data.as_slice()).unwrap() };
+
+pub static HASH_FN: &'static (dyn Fn(Vec<u8>) -> String + Send + Sync) =
+    &|data: Vec<u8>| -> String { get_hash(data).unwrap() };

@@ -1,7 +1,8 @@
 use gloo_net::http::Request;
+use jdt_activity_pub::{ApObject, Collectible};
 use wasm_bindgen::prelude::wasm_bindgen;
 
-use crate::{authenticated, EnigmatickState, Profile, SignParams, Method, ApObject};
+use crate::{authenticated, EnigmatickState, Profile, SignParams, Method};
 
 #[wasm_bindgen]
 pub async fn get_inbox(offset: i32, limit: i32) -> Option<String> {
@@ -25,7 +26,7 @@ pub async fn get_inbox(offset: i32, limit: i32) -> Option<String> {
             .send().await.ok()?;
 
         if let ApObject::Collection(object) = resp.json().await.ok()? {
-            Some(serde_json::to_string(&object.items?).unwrap())
+            Some(serde_json::to_string(&object.items()?).unwrap())
         } else {
             None
         }

@@ -1,35 +1,7 @@
+use crate::{get_state, log, send_get};
 use gloo_net::http::Request;
+use jdt_activity_pub::ApObject;
 use wasm_bindgen::prelude::wasm_bindgen;
-
-use crate::{get_state, log, send_get, ApObject};
-
-// fn extract_outbox_elements(url: String) -> (Option<String>, Option<String>, Option<String>, Option<String>) {
-//     let state = get_state();
-
-//     let result = state.server_url.clone().and_then(|server_url| {
-//         log(&format!("OUTBOX {url}"));
-
-//         let pattern = format!(r"^{}/user/(.+?)/outbox(?:\?(?:limit=(\d+))?(?:&(min|max)=(\d+))?)?*$", regex::escape(&server_url));
-//         let re = regex::Regex::new(&pattern).unwrap();
-
-//         let captures = re.captures(&url).unwrap();
-
-//         log(&format!("CAPTURES {captures:#?}"));
-
-//         if captures.len() == 5 {
-//             Some((
-//                 captures.get(1).map(|x| x.as_str().to_string()),
-//                 captures.get(2).map(|x| x.as_str().to_string()),
-//                 captures.get(3).map(|x| x.as_str().to_string()),
-//                 captures.get(4).map(|x| x.as_str().to_string()),
-//             ))
-//         } else {
-//             None
-//         }
-//     });
-
-//     result.unwrap_or((None, None, None, None))
-// }
 
 #[wasm_bindgen]
 pub async fn get_outbox(
@@ -63,7 +35,7 @@ pub async fn get_outbox(
             .await
             .ok()?;
 
-        if let Ok(ApObject::CollectionPage(object)) = resp.json().await {
+        if let Ok(ApObject::Collection(object)) = resp.json().await {
             serde_json::to_string(&object).ok()
         } else {
             None

@@ -1,6 +1,6 @@
 use base64::engine::{general_purpose, Engine as _};
 use jdt_activity_pub::{
-    session::CredentialKeyPair, ApActivity, ApAddress, ApCollection, ApInstrument, ApUpdate,
+    session::CredentialKeyPair, ApAddress, ApCollection, ApInstrument, ApObject, 
 };
 use openmls::prelude::{tls_codec::*, *};
 use openmls_basic_credential::SignatureKeyPair;
@@ -8,14 +8,14 @@ use openmls_rust_crypto::OpenMlsRustCrypto;
 use wasm_bindgen::prelude::wasm_bindgen;
 
 use crate::{
-    authenticated, decrypt_bytes, encrypt_bytes, get_hash, get_state, log, send_post,
-    EnigmatickState, Profile,
+    authenticated, decrypt_bytes, encrypt_bytes, get_state, log, send_post,
+    EnigmatickState, Profile, ENCRYPT_FN, HASH_FN,
 };
 
 // A helper to create and store credentials.
 fn generate_credential_with_key(
     identity: Vec<u8>,
-    credential_type: CredentialType,
+    _credential_type: CredentialType,
     signature_algorithm: SignatureScheme,
     provider: &impl OpenMlsProvider,
 ) -> (CredentialWithKey, SignatureKeyPair) {
@@ -55,14 +55,14 @@ fn generate_key_packages(
         .collect()
 }
 
-pub async fn send_activity(activity: ApActivity) -> Option<String> {
+pub async fn send_object(object: ApObject) -> Option<String> {
     authenticated(
         move |_state: EnigmatickState, profile: Profile| async move {
-            let outbox = format!("/user/{}/outbox", profile.username.clone());
+            let outbox = format!("/user/{}", profile.username.clone());
 
             send_post(
                 outbox,
-                serde_json::to_string(&activity).unwrap(),
+                serde_json::to_string(&object).unwrap(),
                 "application/activity+json".to_string(),
             )
             .await
@@ -70,13 +70,6 @@ pub async fn send_activity(activity: ApActivity) -> Option<String> {
     )
     .await
 }
-
-// Add Send + Sync bounds
-static ENCRYPT_FN: &'static (dyn Fn(Vec<u8>) -> Vec<u8> + Send + Sync) =
-    &|data: Vec<u8>| -> Vec<u8> { encrypt_bytes(None, data.as_slice()).unwrap() };
-
-static HASH_FN: &'static (dyn Fn(Vec<u8>) -> String + Send + Sync) =
-    &|data: Vec<u8>| -> String { get_hash(data).unwrap() };
 
 pub async fn initialize_credentials() {
     let ciphersuite = Ciphersuite::MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519;
@@ -109,10 +102,8 @@ pub async fn initialize_credentials() {
     instruments.append(&mut key_packages);
 
     let collection = ApCollection::from(instruments);
-    let update = ApUpdate::from((id, collection));
-    let activity = ApActivity::from(update);
 
-    let resp = send_activity(activity).await;
+    let resp = send_object(ApObject::Collection(collection)).await;
     log(&format!("Response: {resp:#?}"));
 }
 
@@ -192,7 +183,7 @@ pub async fn test() {
         .merge_pending_commit(provider)
         .expect("error merging pending commit");
 
-    let first_encrypted = sasha_group
+    let _first_encrypted = sasha_group
         .create_message(provider, &sasha_signer, "welcome dude".as_bytes())
         .unwrap();
 

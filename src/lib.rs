@@ -1,37 +1,28 @@
 #![allow(non_upper_case_globals)]
 
+use anyhow::Result;
 use base64::{engine::general_purpose, engine::Engine as _};
-use chrono::{DateTime, Utc};
 use futures::Future;
 use gloo_net::http::Request;
+use jdt_activity_pub::ApAttachment;
 use lazy_static::lazy_static;
 use regex::Regex;
-use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::{
     cmp::Ordering,
     fmt::{self, Debug},
 };
 use wasm_bindgen::prelude::*;
-use anyhow::{anyhow, Result};
 
-pub mod accept;
-pub mod activitypub;
 pub mod actor;
-pub mod add;
 pub mod announce;
-pub mod attachment;
-pub mod block;
 pub mod cache;
-pub mod collection;
-pub mod create;
 pub mod crypto;
 pub mod delete;
 pub mod follow;
 pub mod inbox;
 pub mod instance;
-pub mod invite;
-pub mod join;
 pub mod keystore;
 pub mod like;
 pub mod mls;
@@ -39,50 +30,31 @@ pub mod note;
 pub mod olm;
 pub mod outbox;
 pub mod processing_queue;
-pub mod question;
-pub mod remove;
 pub mod session;
-pub mod signature;
 pub mod state;
 pub mod stream;
 pub mod timeline;
-pub mod undo;
-pub mod update;
 pub mod user;
 pub mod vault;
 
-pub use accept::*;
-pub use activitypub::*;
 pub use actor::*;
-pub use add::*;
 pub use announce::*;
-pub use attachment::*;
-pub use block::*;
 pub use cache::*;
-pub use collection::*;
-pub use create::*;
 pub use crypto::*;
 pub use delete::*;
 pub use follow::*;
 pub use inbox::*;
 pub use instance::*;
-pub use invite::*;
-pub use join::*;
 pub use keystore::*;
 pub use like::*;
 pub use note::*;
 pub use olm::*;
 pub use outbox::*;
 pub use processing_queue::*;
-pub use question::*;
-pub use remove::*;
 pub use session::*;
-pub use signature::*;
 pub use state::*;
 pub use stream::*;
 pub use timeline::*;
-pub use undo::*;
-pub use update::*;
 pub use user::*;
 pub use vault::*;
 
@@ -126,286 +98,6 @@ impl Ord for OrdValue {
         let a_str = serde_json::to_string(&self.0).unwrap();
         let b_str = serde_json::to_string(&other.0).unwrap();
         a_str.cmp(&b_str)
-    }
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd)]
-#[serde(rename_all = "camelCase")]
-pub struct Ephemeral {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub followers: Option<i64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub leaders: Option<i64>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub following: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub leader_as_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub follow_activity_as_id: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub summary_markdown: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub actors: Option<Vec<ApActorTerse>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub announces: Option<Vec<ApActorTerse>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub liked: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub announced: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub targeted: Option<bool>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub metadata: Option<Vec<Metadata>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub likes: Option<Vec<ApActorTerse>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub created_at: Option<DateTime<Utc>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub updated_at: Option<DateTime<Utc>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub attributed_to: Option<Vec<ApActorTerse>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub internal_uuid: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub timestamp: Option<DateTime<Utc>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub instruments_to_update: Option<Vec<ApInstrument>>,
-}
-
-impl From<Option<Vec<ApActorTerse>>> for Ephemeral {
-    fn from(actors: Option<Vec<ApActorTerse>>) -> Self {
-        Self {
-            actors,
-            ..Default::default()
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
-#[serde(untagged)]
-pub enum ActivityPub {
-    Activity(ApActivity),
-    Actor(ApActor),
-    Object(ApObject),
-}
-
-impl From<ApObject> for ActivityPub {
-    fn from(object: ApObject) -> Self {
-        ActivityPub::Object(object)
-    }
-}
-
-impl FromIterator<ApObject> for Vec<ActivityPub> {
-    fn from_iter<I: IntoIterator<Item = ApObject>>(iter: I) -> Self {
-        iter.into_iter().map(ActivityPub::from).collect()
-    }
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd)]
-#[serde(untagged)]
-pub enum MaybeMultiple<T> {
-    Single(T),
-    Multiple(Vec<T>),
-    #[default]
-    None,
-}
-
-impl<T: PartialEq> MaybeMultiple<T> {
-    fn is_none(&self) -> bool {
-        *self == MaybeMultiple::None
-    }
-}
-
-impl<T> From<Option<Vec<T>>> for MaybeMultiple<T> {
-    fn from(data: Option<Vec<T>>) -> Self {
-        match data {
-            Some(x) => MaybeMultiple::Multiple(x),
-            None => MaybeMultiple::None,
-        }
-    }
-}
-
-impl<T: DeserializeOwned> From<Option<Value>> for MaybeMultiple<T> {
-    fn from(data: Option<Value>) -> Self {
-        match data {
-            Some(value) => value.into(),
-            None => MaybeMultiple::None,
-        }
-    }
-}
-
-impl<T: DeserializeOwned> From<Value> for MaybeMultiple<T> {
-    fn from(data: Value) -> Self {
-        // First, try to convert to Vec<T>
-        if let Ok(vec_result) = serde_json::from_value::<Vec<T>>(data.clone()) {
-            MaybeMultiple::Multiple(vec_result)
-        }
-        // If Vec conversion fails, try single T
-        else if let Ok(single_result) = serde_json::from_value::<T>(data) {
-            MaybeMultiple::Single(single_result)
-        }
-        // If both conversions fail, return None
-        else {
-            MaybeMultiple::None
-        }
-    }
-}
-
-impl<T: Serialize> From<&MaybeMultiple<T>> for Option<Value> {
-    fn from(object: &MaybeMultiple<T>) -> Self {
-        match object {
-            MaybeMultiple::None => None,
-            _ => Some(json!(object)),
-        }
-    }
-}
-
-impl<T: Serialize> From<MaybeMultiple<T>> for Option<Value> {
-    fn from(object: MaybeMultiple<T>) -> Self {
-        match object {
-            MaybeMultiple::None => None,
-            _ => Some(json!(object)),
-        }
-    }
-}
-
-impl<T: Serialize> From<&MaybeMultiple<T>> for Value {
-    fn from(object: &MaybeMultiple<T>) -> Self {
-        json!(object)
-    }
-}
-
-impl<T: Serialize> From<MaybeMultiple<T>> for Value {
-    fn from(object: MaybeMultiple<T>) -> Self {
-        json!(object)
-    }
-}
-
-impl From<ApObject> for MaybeMultiple<ApObject> {
-    fn from(data: ApObject) -> Self {
-        MaybeMultiple::Single(data)
-    }
-}
-
-impl From<String> for MaybeMultiple<String> {
-    fn from(data: String) -> Self {
-        MaybeMultiple::Single(data)
-    }
-}
-
-impl<T> From<Vec<T>> for MaybeMultiple<T> {
-    fn from(data: Vec<T>) -> Self {
-        MaybeMultiple::Multiple(data)
-    }
-}
-
-impl<T: Clone> MaybeMultiple<T> {
-    pub fn map<U, F>(self, mut f: F) -> MaybeMultiple<U>
-    where
-        F: FnMut(T) -> U,
-    {
-        match self {
-            MaybeMultiple::Multiple(vec) => {
-                MaybeMultiple::Multiple(vec.into_iter().map(f).collect())
-            }
-            MaybeMultiple::Single(val) => MaybeMultiple::Single(f(val)),
-            MaybeMultiple::None => MaybeMultiple::None,
-        }
-    }
-
-    pub fn single(&self) -> Result<T> {
-        match self {
-            MaybeMultiple::Multiple(s) => {
-                if s.len() == 1 {
-                    Ok(s[0].clone())
-                } else {
-                    Err(anyhow!("MaybeMultiple is Multiple"))
-                }
-            }
-            MaybeMultiple::Single(s) => Ok(s.clone()),
-            MaybeMultiple::None => Err(anyhow!("MaybeMultiple is None")),
-        }
-    }
-
-    pub fn multiple(&self) -> Vec<T> {
-        match self {
-            MaybeMultiple::Multiple(data) => data.clone(),
-            MaybeMultiple::Single(data) => {
-                vec![data.clone()]
-            }
-            MaybeMultiple::None => vec![],
-        }
-    }
-
-    pub fn extend(mut self, mut additional: Vec<T>) -> Self {
-        match self {
-            MaybeMultiple::Multiple(ref mut data) => {
-                data.append(&mut additional);
-                data.clone().into()
-            }
-            MaybeMultiple::Single(data) => {
-                additional.push(data.clone());
-                additional.clone().into()
-            }
-            MaybeMultiple::None => additional.clone().into(),
-        }
-    }
-
-    pub fn option(&self) -> Option<Vec<T>> {
-        match self {
-            MaybeMultiple::Multiple(v) => Some(v.clone()),
-            MaybeMultiple::Single(s) => Some(vec![s.clone()]),
-            MaybeMultiple::None => None,
-        }
-    }
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd)]
-pub struct Identifier {
-    id: String,
-}
-
-#[derive(Serialize, Deserialize, Clone, Debug, Default, Eq, PartialEq, Ord, PartialOrd)]
-#[serde(untagged)]
-pub enum MaybeReference<T> {
-    Reference(String),
-    Actual(T),
-    Identifier(Identifier),
-    #[default]
-    None,
-}
-
-impl<T> fmt::Display for MaybeReference<T> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            MaybeReference::Reference(reference) => f.write_str(reference),
-            MaybeReference::Identifier(identifier) => f.write_str(&identifier.id),
-            _ => f.write_str("UNDEFINED"),
-        }
-    }
-}
-
-impl From<ApObject> for MaybeReference<ApObject> {
-    fn from(object: ApObject) -> Self {
-        MaybeReference::Actual(object)
-    }
-}
-
-impl From<String> for MaybeReference<ApObject> {
-    fn from(reference: String) -> Self {
-        MaybeReference::Reference(reference)
-    }
-}
-
-impl From<ApActivity> for MaybeReference<ApActivity> {
-    fn from(activity: ApActivity) -> Self {
-        MaybeReference::Actual(activity)
-    }
-}
-
-impl From<String> for MaybeReference<String> {
-    fn from(reference: String) -> Self {
-        MaybeReference::Reference(reference)
     }
 }
 

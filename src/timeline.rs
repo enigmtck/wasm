@@ -2,11 +2,14 @@ use std::collections::HashMap;
 
 use crate::{
     authenticated, decrypt, get_key, get_olm_account, get_state, log, send_get, send_post,
-    ActivityPub, ApActivity, ApCollection, ApCreate, ApInstrument, ApNote, ApObject,
-    EnigmatickState, MaybeReference, Profile,
+    EnigmatickState, Profile,
 };
 use anyhow::anyhow;
 use gloo_net::http::Request;
+use jdt_activity_pub::{
+    ActivityPub, ApActivity, ApCollection, ApCreate, ApInstrument, ApNote, ApObject, Collectible,
+};
+use jdt_maybe_reference::MaybeReference;
 use serde_json::json;
 use serde_wasm_bindgen;
 use urlencoding::encode;
@@ -64,21 +67,24 @@ pub async fn get_timeline(
 
     fn find_session_instrument(create: &ApCreate) -> Option<ApInstrument> {
         create
-            .instrument.multiple()
+            .instrument
+            .multiple()
             .into_iter()
             .find(|instrument| instrument.is_olm_session() && instrument.content.is_some())
     }
 
     fn find_vault_instrument(create: &ApCreate) -> Option<ApInstrument> {
         create
-            .instrument.multiple()
+            .instrument
+            .multiple()
             .into_iter()
             .find(|instrument| instrument.is_vault_item() && instrument.content.is_some())
     }
 
     fn find_identity_key_instrument(create: &ApCreate) -> Option<ApInstrument> {
         create
-            .instrument.multiple()
+            .instrument
+            .multiple()
             .into_iter()
             .find(|instrument| instrument.is_olm_identity_key() && instrument.content.is_some())
     }
@@ -93,7 +99,7 @@ pub async fn get_timeline(
     fn use_session(
         instrument: ApInstrument,
         sessions: &mut HashMap<String, String>,
-        create: ApCreate,
+        _create: ApCreate,
         note: &ApNote,
     ) -> Option<Vec<ApInstrument>> {
         let key = &*get_key().ok()?;
@@ -101,22 +107,22 @@ pub async fn get_timeline(
         let content = instrument.content?;
         let pickle_str = sessions.entry(instrument.id?).or_insert_with(|| content);
 
-        let pickle =
-            SessionPickle::from_encrypted(pickle_str, key.try_into().ok()?).ok()?;
+        let pickle = SessionPickle::from_encrypted(pickle_str, key.try_into().ok()?).ok()?;
 
         let mut session = Session::from_pickle(pickle);
 
         if let OlmMessage::Normal(m) = serde_json::from_str(&note.content).ok()? {
             let bytes = session.decrypt(&m.into()).ok()?;
-            let message = String::from_utf8(bytes).ok()?;
+            let _message = String::from_utf8(bytes).ok()?;
 
-            let mut session_instrument = ApInstrument::try_from(session).ok()?;
-            session_instrument.conversation = note.conversation.clone();
+            // let mut session_instrument = ApInstrument::try_from(session).ok()?;
+            // session_instrument.conversation = note.conversation.clone();
 
-            let mut vault_instrument = ApInstrument::try_from(message.clone()).ok()?;
-            vault_instrument.activity = create.id;
+            // let mut vault_instrument = ApInstrument::try_from(message.clone()).ok()?;
+            // vault_instrument.activity = create.id;
 
-            Some(vec![session_instrument, vault_instrument])
+            //Some(vec![session_instrument, vault_instrument])
+            Some(vec![])
         } else {
             None
         }
@@ -125,7 +131,7 @@ pub async fn get_timeline(
     fn create_session(
         account: &mut Account,
         idk: ApInstrument,
-        create: ApCreate,
+        _create: ApCreate,
         note: &ApNote,
     ) -> Option<(Vec<ApInstrument>, String)> {
         let identity_key = Curve25519PublicKey::from_base64(&idk.content.unwrap()).ok()?;
@@ -135,13 +141,14 @@ pub async fn get_timeline(
 
             let message = String::from_utf8(inbound.plaintext).ok()?;
 
-            let mut session_instrument = ApInstrument::try_from(inbound.session).ok()?;
-            session_instrument.conversation = note.conversation.clone();
+            // let mut session_instrument = ApInstrument::try_from(inbound.session).ok()?;
+            // session_instrument.conversation = note.conversation.clone();
 
-            let mut vault_instrument = ApInstrument::try_from(message.clone()).ok()?;
-            vault_instrument.activity = create.id;
+            // let mut vault_instrument = ApInstrument::try_from(message.clone()).ok()?;
+            // vault_instrument.activity = create.id;
 
-            Some((vec![session_instrument, vault_instrument], message))
+            // Some((vec![session_instrument, vault_instrument], message))
+            Some((vec![], message))
         } else {
             None
         }
@@ -219,8 +226,8 @@ pub async fn get_timeline(
             let mut sessions = HashMap::<String, String>::new();
 
             let mut instruments: Vec<ApInstrument> = vec![];
-            if let ApObject::CollectionPage(object) = serde_json::from_str(&text).ok()? {
-                let items = object.clone().ordered_items?;
+            if let ApObject::Collection(object) = serde_json::from_str(&text).ok()? {
+                let items = object.clone().items()?;
 
                 let encrypted_items: Vec<(ApCreate, ApNote)> = items
                     .iter()
@@ -233,7 +240,7 @@ pub async fn get_timeline(
                             .unwrap_or(vec![]),
                     );
                 }
-                
+
                 Some(instruments)
             } else {
                 None
@@ -263,7 +270,9 @@ pub async fn get_timeline(
                     .ok()?;
 
                     let mut account = Account::from(pickled_account);
-                    let mut instruments = process_encrypted_notes(&mut account).await.unwrap_or_default();
+                    let mut instruments = process_encrypted_notes(&mut account)
+                        .await
+                        .unwrap_or_default();
 
                     let url = format!(
                         "/user/{username}/inbox?limit={limit}{position}&view={view}{hashtags}"
@@ -271,10 +280,8 @@ pub async fn get_timeline(
 
                     let text = send_get(None, url, "application/activity+json".to_string()).await?;
 
-                    if let ApObject::CollectionPage(mut object) =
-                        serde_json::from_str(&text).ok()?
-                    {
-                        let items = object.clone().ordered_items?;
+                    if let ApObject::Collection(mut object) = serde_json::from_str(&text).ok()? {
+                        let items = object.clone().items()?;
 
                         let mut decrypted_items: Vec<ActivityPub> = items
                             .iter()
@@ -300,19 +307,19 @@ pub async fn get_timeline(
                         //     }
                         // }
 
-                        let mut account_instrument = ApInstrument::try_from(&account).ok()?;
-                        log(&format!(
-                            "Olm Pickled Account Hash (post mutation): {}",
-                            account_instrument.hash.clone().unwrap_or_default()
-                        ));
+                        // let mut account_instrument = ApInstrument::try_from(&account).ok()?;
+                        // log(&format!(
+                        //     "Olm Pickled Account Hash (post mutation): {}",
+                        //     account_instrument.hash.clone().unwrap_or_default()
+                        // ));
 
-                        if account_instrument.hash != Some(mutation_of.clone()) {
-                            account_instrument.set_mutation_of(mutation_of);
-                            instruments.push(account_instrument);
-                        }
+                        // if account_instrument.hash != Some(mutation_of.clone()) {
+                        //     account_instrument.set_mutation_of(mutation_of);
+                        //     instruments.push(account_instrument);
+                        // }
 
-                        update_instruments(instruments).await;
-                        object.ordered_items = Some(decrypted_items);
+                        // update_instruments(instruments).await;
+                        // object.ordered_items = Some(decrypted_items);
 
                         serde_json::to_string(&object).ok()
                     } else {
@@ -336,7 +343,7 @@ pub async fn get_timeline(
 
         let text = resp.text().await.ok()?;
         log(&text);
-        if let ApObject::CollectionPage(object) = serde_json::from_str(&text)
+        if let ApObject::Collection(object) = serde_json::from_str(&text)
             .map_err(|e| {
                 log(&format!("FAILED TO CONVERT TEXT TO COLLECTION: {e:#?}"));
                 anyhow!("FAILED TO CONVERT TEXT TO COLLECTION: {e:#?}")

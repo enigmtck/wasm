@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use base64::{engine::general_purpose, engine::Engine as _};
 use gloo_net::http::Request;
-use jdt_activity_pub::ApAddress;
+use jdt_activity_pub::{ApActor, ApAddress, ApInstrument};
 use orion::{aead, kdf};
 use rsa::pkcs8::{EncodePrivateKey, EncodePublicKey, LineEnding};
 use serde::{Deserialize, Serialize};
@@ -10,7 +10,7 @@ use vodozemac::olm::Account;
 use wasm_bindgen::prelude::wasm_bindgen;
 
 use crate::{
-    authenticated, decrypt, derive_key, encode_derived_key, encrypt, get_hash, get_key_pair, get_state, log, send_get, send_post, update_state, update_state_password, upload_file, ApActor, ApInstrument, EnigmatickState
+    authenticated, decrypt, derive_key, encode_derived_key, encrypt, get_hash, get_key_pair, get_state, log, send_get, send_post, update_state, update_state_password, upload_file, EnigmatickState
 };
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

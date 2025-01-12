@@ -1,7 +1,8 @@
+use jdt_activity_pub::ApObject;
 use serde::{Serialize, Deserialize};
 use wasm_bindgen::prelude::wasm_bindgen;
 
-use crate::{log, authenticated, EnigmatickState, Profile, ApObject, send_post, send_get};
+use crate::{log, authenticated, EnigmatickState, Profile, send_post, send_get};
 
 #[wasm_bindgen]
 #[derive(Serialize, Deserialize, Default, Clone, Debug)]
