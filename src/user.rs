@@ -2,7 +2,7 @@ use std::collections::HashMap;
 
 use base64::{engine::general_purpose, engine::Engine as _};
 use gloo_net::http::Request;
-use jdt_activity_pub::{ApActor, ApAddress, ApInstrument};
+use jdt_activity_pub::{ApActor, ApAddress, ApCollection, ApInstrument, ApObject};
 use orion::{aead, kdf};
 use rsa::pkcs8::{EncodePrivateKey, EncodePublicKey, LineEnding};
 use serde::{Deserialize, Serialize};
@@ -180,6 +180,19 @@ pub async fn create_user(
         user
     }
     .await
+}
+
+pub async fn get_mls_keys() -> Option<ApCollection> {
+    authenticated(
+        move |state: EnigmatickState, _profile: Profile| async move {
+            let keys = format!("/user/{}/keys", state.get_profile()?.username);
+
+            send_get(None, keys, "application/activity+json".to_string()).await
+        },
+    )
+    .await.and_then(|x| {
+        serde_json::from_str(&x).ok()
+    })
 }
 
 pub async fn get_olm_account() -> Option<ApInstrument> {
@@ -366,6 +379,19 @@ pub async fn add_one_time_keys(params: OtkUpdateParams) -> Option<String> {
         let data = serde_json::to_string(&params).unwrap();
         log(&format!("{data:#?}"));
         send_post(url, data, "application/json".to_string()).await
+    })
+    .await
+}
+
+pub async fn update_instruments(packages: Vec<ApInstrument>) -> Option<String> {
+    authenticated(move |_: EnigmatickState, profile: Profile| async move {
+        let collection: ApCollection = packages.into();
+        let username = profile.username;
+        let url = format!("/user/{username}");
+
+        let data = serde_json::to_string(&collection).unwrap();
+        log(&format!("{data:#?}"));
+        send_post(url, data, "application/activity+json".to_string()).await
     })
     .await
 }

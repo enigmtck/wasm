@@ -252,5 +252,8 @@ pub fn get_key() -> Result<Vec<u8>> {
 pub static ENCRYPT_FN: &'static (dyn Fn(Vec<u8>) -> Vec<u8> + Send + Sync) =
     &|data: Vec<u8>| -> Vec<u8> { encrypt_bytes(None, data.as_slice()).unwrap() };
 
+pub static DECRYPT_FN: &'static (dyn Fn(String) -> Vec<u8> + Send + Sync) =
+    &|data: String| -> Vec<u8> { decrypt_bytes(None, data).unwrap() };
+
 pub static HASH_FN: &'static (dyn Fn(Vec<u8>) -> String + Send + Sync) =
     &|data: Vec<u8>| -> String { get_hash(data).unwrap() };

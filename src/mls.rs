@@ -1,6 +1,8 @@
+use anyhow::anyhow;
 use base64::engine::{general_purpose, Engine as _};
 use jdt_activity_pub::{
-    session::CredentialKeyPair, ApAddress, ApCollection, ApInstrument, ApObject, 
+    session::CredentialKeyPair, ActivityPub, ApAddress, ApCollection, ApInstrument, ApObject,
+    Collectible,
 };
 use openmls::prelude::{tls_codec::*, *};
 use openmls_basic_credential::SignatureKeyPair;
@@ -8,8 +10,9 @@ use openmls_rust_crypto::OpenMlsRustCrypto;
 use wasm_bindgen::prelude::wasm_bindgen;
 
 use crate::{
-    authenticated, decrypt_bytes, encrypt_bytes, get_state, log, send_post,
-    EnigmatickState, Profile, ENCRYPT_FN, HASH_FN,
+    authenticated, decrypt_bytes, encrypt_bytes, get_mls_keys, get_state, log,
+    retrieve_credentials, send_get, send_post, update_instruments, EnigmatickState, Profile,
+    DECRYPT_FN, ENCRYPT_FN, HASH_FN,
 };
 
 // A helper to create and store credentials.
@@ -38,14 +41,55 @@ fn generate_credential_with_key(
     )
 }
 
+pub async fn get_mkp_collection() -> Option<ApCollection> {
+    let response = authenticated(move |_: EnigmatickState, profile: Profile| async move {
+        let username = profile.username;
+        let path = format!("/user/{username}/keys?count=true");
+
+        send_get(None, path, "application/activity+json".to_string()).await
+    })
+    .await;
+
+    response.and_then(|x| serde_json::from_str(&x).ok())
+}
+
+#[wasm_bindgen]
+pub async fn replenish_mkp() -> Option<bool> {
+    let mkp_collection = get_mkp_collection().await?;
+
+    log(&format!("{mkp_collection:#?}"));
+
+    if mkp_collection.total_items? < 20 {
+        let (credentials_key_pair, provider, mutation_of) = retrieve_credentials().await.ok()?;
+        let mut updated_instruments: Vec<ApInstrument> = generate_key_packages(
+            &provider,
+            &credentials_key_pair.key_pair,
+            credentials_key_pair.credential_with_key,
+            10,
+        )
+        .iter()
+        .map(|x| ApInstrument::from(x.clone()))
+        .collect();
+        updated_instruments.push(ApInstrument::from((
+            provider.storage(),
+            mutation_of,
+            ENCRYPT_FN,
+            HASH_FN,
+        )));
+        update_instruments(updated_instruments).await;
+    }
+
+    Some(true)
+}
+
 // A helper to create key package bundles.
-fn generate_key_packages(
-    ciphersuite: Ciphersuite,
+pub fn generate_key_packages(
     provider: &impl OpenMlsProvider,
     signer: &SignatureKeyPair,
     credential_with_key: CredentialWithKey,
     count: i32,
 ) -> Vec<KeyPackageBundle> {
+    let ciphersuite = Ciphersuite::MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519;
     (0..count)
         .map(|_| {
             KeyPackage::builder()
@@ -85,7 +129,6 @@ pub async fn initialize_credentials() {
     let credential_key_pair: CredentialKeyPair = (id.clone(), signature_keys.clone()).into();
 
     let mut key_packages: Vec<ApInstrument> = generate_key_packages(
-        ciphersuite,
         provider,
         &signature_keys,
         credential_key_pair.credential_with_key.clone(),
@@ -109,8 +152,47 @@ pub async fn initialize_credentials() {
 
 #[wasm_bindgen]
 pub async fn test() {
-    initialize_credentials().await;
-    return;
+    //initialize_credentials().await;
+    // let activity_pubs = get_mls_keys()
+    //     .await
+    //     .ok_or(anyhow!(
+    //         "Failed to retrieve user MLS credentials and storage"
+    //     ))
+    //     .unwrap()
+    //     .items()
+    //     .ok_or(anyhow!("No items"))
+    //     .unwrap();
+
+    // let instruments: Vec<ApInstrument> = activity_pubs
+    //     .iter()
+    //     .filter_map(|item| {
+    //         if let ActivityPub::Object(ApObject::Instrument(x)) = item {
+    //             Some(x.clone())
+    //         } else {
+    //             None
+    //         }
+    //     })
+    //     .collect();
+
+    // let credentials = instruments
+    //     .iter()
+    //     .find(|instrument| instrument.is_mls_credentials())
+    //     .ok_or(anyhow!("Instrument must be Some"))
+    //     .unwrap()
+    //     .to_credentials(DECRYPT_FN)
+    //     .unwrap();
+
+    // let storage = instruments
+    //     .iter()
+    //     .find(|instrument| instrument.is_mls_storage())
+    //     .ok_or(anyhow!("Instrument must be Some"))
+    //     .unwrap()
+    //     .to_provider(DECRYPT_FN)
+    //     .unwrap();
+
+    // log(&format!("{credentials:#?}"));
+    // log(&format!("{storage:#?}"));
+    //return;
     // Define ciphersuite ...
     let ciphersuite = Ciphersuite::MLS_128_DHKEMX25519_AES128GCM_SHA256_Ed25519;
     // ... and the crypto provider to use.
@@ -150,23 +232,20 @@ pub async fn test() {
     // in MLS
 
     // Generate KeyPackages
-    let maxim_key_package_bundle = generate_key_packages(
-        ciphersuite,
-        provider,
-        &maxim_signer,
-        maxim_credential_with_key,
-        10,
-    );
+    let maxim_key_package_bundle =
+        generate_key_packages(provider, &maxim_signer, maxim_credential_with_key, 10);
 
     let maxim_key_package_instrument = ApInstrument::from(maxim_key_package_bundle[0].clone());
 
     let maxim_key_package = KeyPackage::try_from(maxim_key_package_instrument).unwrap();
 
+    let group_config_builder = MlsGroupCreateConfig::builder().use_ratchet_tree_extension(true);
+    let group_config = group_config_builder.build();
     // Now Sasha starts a new group ...
     let mut sasha_group = MlsGroup::new(
         provider,
         &sasha_signer,
-        &MlsGroupCreateConfig::default(),
+        &group_config,
         sasha_credential_with_key.clone(),
     )
     .expect("An unexpected error occurred.");
@@ -187,9 +266,12 @@ pub async fn test() {
         .create_message(provider, &sasha_signer, "welcome dude".as_bytes())
         .unwrap();
 
-    let storage_instrument = ApInstrument::from((provider.storage(), None, |data: Vec<u8>| -> Vec<u8> {
-        encrypt_bytes(None, data.as_slice()).unwrap()
-    }, HASH_FN));
+    let storage_instrument = ApInstrument::from((
+        provider.storage(),
+        None,
+        |data: Vec<u8>| -> Vec<u8> { encrypt_bytes(None, data.as_slice()).unwrap() },
+        HASH_FN,
+    ));
     log(&format!(
         "Sasha Storage Instrument: {storage_instrument:#?}"
     ));
@@ -204,14 +286,18 @@ pub async fn test() {
 
     let welcome = Welcome::try_from(welcome_instrument).unwrap();
 
+    let mut group_join_config_builder =
+        MlsGroupJoinConfig::builder().use_ratchet_tree_extension(true);
+    let group_join_config = group_join_config_builder.build();
+
     // Now Maxim can build a staged join for the group in order to inspect the welcome
     let maxim_staged_join = StagedWelcome::new_from_welcome(
         provider,
-        &MlsGroupJoinConfig::default(),
+        &group_join_config,
         welcome,
         // The public tree is need and transferred out of band.
         // It is also possible to use the [`RatchetTreeExtension`]
-        Some(sasha_group.export_ratchet_tree().into()),
+        None,
     )
     .expect("Error creating a staged join from Welcome");
 

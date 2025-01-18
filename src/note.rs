@@ -10,8 +10,7 @@ use std::{collections::HashMap, fmt::Debug};
 use wasm_bindgen::prelude::wasm_bindgen;
 
 use crate::{
-    authenticated, create_olm_session, error, get_olm_session, get_state, log, send_get, send_post,
-    EnigmatickState, Profile,
+    authenticated, create_mls_group, create_olm_session, error, get_olm_session, get_state, log, send_get, send_post, EnigmatickState, Profile, ENCRYPT_FN
 };
 
 impl SendParams {
@@ -97,12 +96,12 @@ impl SendParams {
                 let instruments = self.get_instruments();
 
                 if instruments.is_empty() {
-                    None
+                    MaybeMultiple::None
                 } else {
-                    Some(MaybeMultiple::Multiple(instruments))
+                    MaybeMultiple::Multiple(instruments.to_owned())
                 }
             } else {
-                None
+                MaybeMultiple::None
             }
         };
 
@@ -211,25 +210,10 @@ pub struct SendParams {
     conversation: Option<String>,
     attachments: Option<String>,
 
-    olm_account: Option<ApInstrument>,
-    olm_session: Option<ApInstrument>,
-    olm_identity_key: Option<ApInstrument>,
-    vault_item: Option<ApInstrument>,
+    instruments: Vec<ApInstrument>,
 
     resolves: Option<String>,
     is_public: bool,
-}
-
-impl SendParams {
-    pub fn set_olm_identity_key(&mut self, instrument: ApInstrument) -> Self {
-        self.olm_identity_key = Some(instrument);
-        self.clone()
-    }
-
-    pub fn set_olm_account(&mut self, instrument: ApInstrument) -> Self {
-        self.olm_account = Some(instrument);
-        self.clone()
-    }
 }
 
 #[wasm_bindgen]
@@ -246,41 +230,18 @@ impl SendParams {
         }
     }
 
+    pub fn add_instrument(&mut self, instrument: ApInstrument) -> Self {
+        self.instruments.push(instrument);
+        self.clone()
+    }
+
     pub fn resolves(&mut self, queue_id: String) -> Self {
         self.resolves = Some(queue_id);
         self.clone()
     }
 
-    fn set_vault_item(&mut self, instrument: ApInstrument) -> Self {
-        self.vault_item = Some(instrument);
-        self.clone()
-    }
-
-    fn set_olm_session(&mut self, instrument: ApInstrument) -> Self {
-        self.olm_session = Some(instrument);
-        self.clone()
-    }
-
-    fn get_instruments(&self) -> Vec<ApInstrument> {
-        let mut instruments = vec![];
-
-        if let Some(olm_account) = self.olm_account.clone() {
-            instruments.push(olm_account);
-        }
-
-        if let Some(olm_session) = self.olm_session.clone() {
-            instruments.push(olm_session);
-        }
-
-        if let Some(olm_identity_key) = self.olm_identity_key.clone() {
-            instruments.push(olm_identity_key);
-        }
-
-        if let Some(vault_item) = self.vault_item.clone() {
-            instruments.push(vault_item);
-        }
-
-        instruments
+    fn get_instruments(&mut self) -> &Vec<ApInstrument> {
+        &self.instruments
     }
 
     // pub fn set_encrypted(&mut self) -> Self {
@@ -361,20 +322,13 @@ impl SendParams {
 }
 
 pub async fn encrypt_note(params: &mut SendParams) -> Result<()> {
-    let mut session = if params.conversation.is_some() {
-        get_olm_session(params.conversation.clone().unwrap()).await?
+    if params.conversation.is_some() {
+        //use_mls_group(params).await;
     } else {
-        create_olm_session(params).await?
+        create_mls_group(params).await?;
     };
 
-    log(&format!("Olm Session\n{session:#?}"));
-
-    // params.set_vault_item(params.get_content().clone().try_into()?);
-    // params.set_content(
-    //     serde_json::to_string(&session.encrypt(params.get_content()))
-    //         .map_err(anyhow::Error::msg)?,
-    // );
-    // params.set_olm_session(ApInstrument::try_from((session, ENCRYPT_FN))?);
+    log(&format!("Params\n{params:#?}"));
 
     Ok(())
 }
