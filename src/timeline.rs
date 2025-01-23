@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
 use crate::{
-    authenticated, decrypt, get_state, log, retrieve_credentials,
-    send_get, send_post, EnigmatickState, Profile, ENCRYPT_FN,
+    authenticated, decrypt, get_state, log, retrieve_credentials, send_get, send_post,
+    EnigmatickState, Profile, ENCRYPT_FN,
 };
 use anyhow::{anyhow, Result};
 use base64::engine::{general_purpose, Engine as _};
@@ -23,6 +23,7 @@ use serde_json::json;
 use serde_wasm_bindgen;
 use urlencoding::encode;
 use wasm_bindgen::prelude::{wasm_bindgen, JsValue};
+use wasm_bindgen_futures::spawn_local;
 
 pub fn convert_hashtags_to_query_string(hashtags: &[String]) -> String {
     hashtags
@@ -186,21 +187,27 @@ pub async fn get_timeline(
     }
 
     async fn update_instruments(instruments: Vec<ApInstrument>) {
+        if instruments.len() == 0 {
+            return;
+        }
+
         let state = get_state();
 
         let collection = ApCollection::from(instruments);
 
         if state.authenticated {
-            authenticated(move |_state: EnigmatickState, profile: Profile| async move {
-                let url = format!("/user/{}", profile.username);
-                let body = json!(collection);
-                send_post(
-                    url,
-                    body.to_string(),
-                    "application/activity+json".to_string(),
-                )
-                .await
-            })
+            authenticated(
+                move |_state: EnigmatickState, profile: Profile| async move {
+                    let url = format!("/user/{}", profile.username);
+                    let body = json!(collection);
+                    send_post(
+                        url,
+                        body.to_string(),
+                        "application/activity+json".to_string(),
+                    )
+                    .await
+                },
+            )
             .await;
         }
     }
@@ -291,27 +298,41 @@ pub async fn get_timeline(
         }
     }
 
+    async fn decrypt_task() {
+        // Note that this will return an error if credentials do not exist (they should already exist)
+        if let Some((_credentials_key_pair, mut provider, mutation_of)) =
+            retrieve_credentials().await.ok()
+        {
+            log(&format!(
+                "Provider Hash (before mutation): {mutation_of:#?}"
+            ));
+
+            let instruments = process_encrypted_notes(&mut provider)
+                .await
+                .unwrap_or_default();
+
+            log(&format!(
+                "Instruments from processed encrypted_notes\n{instruments:#?}"
+            ));
+
+            update_instruments(instruments).await;
+        }
+    }
+
     if state.authenticated {
         log("IN authenticated");
         authenticated(
             move |_state: EnigmatickState, profile: Profile| async move {
                 let username = profile.username;
-
-                // Note that this will return an error if credentials do not exist (they should already exist)
-                let (_credentials_key_pair, mut provider, mutation_of) =
-                    retrieve_credentials().await.ok()?;
-
-                log(&format!(
-                    "Provider Hash (before mutation): {mutation_of:#?}"
-                ));
-
-                let instruments = process_encrypted_notes(&mut provider)
-                    .await
-                    .unwrap_or_default();
-
-                log(&format!("Instruments from processed encrypted_notes\n{instruments:#?}"));
-
-                update_instruments(instruments).await;
+                
+                // If retrieving the Direct view, we want to wait for decrypt_task to transform
+                // any pending EncryptedNotes before retrieving the Vault collection. Otherwise,
+                // launch the task in the background to avoid delaying page load.
+                if view.to_lowercase().as_str() == "direct" {
+                    decrypt_task().await;
+                } else {
+                    spawn_local(decrypt_task());
+                }
 
                 let url =
                     format!("/user/{username}/inbox?limit={limit}{position}&view={view}{hashtags}");
