@@ -1,5 +1,4 @@
 use anyhow::Result;
-use gloo_net::http::Request;
 use jdt_activity_pub::{
     ApAddress, ApAttachment, ApContext, ApHashtag, ApHashtagType, ApInstrument, ApMention,
     ApMentionType, ApNote, ApNoteType, ApObject, ApTag, Collectible,
@@ -10,7 +9,8 @@ use std::{collections::HashMap, fmt::Debug};
 use wasm_bindgen::prelude::wasm_bindgen;
 
 use crate::{
-    authenticated, create_mls_group, create_olm_session, error, get_olm_session, get_state, log, send_get, send_post, EnigmatickState, Profile, ENCRYPT_FN
+    authenticated, create_mls_group, error, get_state, get_string, log, send_get, send_post,
+    EnigmatickState, Profile,
 };
 
 impl SendParams {
@@ -164,20 +164,22 @@ impl SendParams {
 
 #[wasm_bindgen]
 pub async fn get_local_conversation(uuid: String) -> Option<String> {
-    let resp = Request::get(&format!("/conversation/{uuid}"))
-        .header("Content-Type", "application/activity+json")
-        .send()
-        .await
-        .ok()?;
+    let response = get_string(
+        format!("/conversation/{uuid}"),
+        None,
+        "application/activity+json",
+    )
+    .await
+    .ok()??;
 
-    let text = resp.text().await.ok()?;
-
-    if let Ok(ApObject::Collection(object)) = serde_json::from_str(&text) {
+    if let Ok(ApObject::Collection(object)) = serde_json::from_str(&response) {
         object
             .items()
             .map(|items| serde_json::to_string(&items).unwrap())
     } else {
-        error(&format!("FAILED TO CONVERT TEXT TO COLLECTION\n{text:#}"));
+        error(&format!(
+            "Failed to convert text to Collection: {response:?}"
+        ));
         None
     }
 }

@@ -1,12 +1,11 @@
 use std::collections::HashMap;
 
 use crate::{
-    authenticated, decrypt, get_state, log, retrieve_credentials, send_get, send_post,
+    authenticated, decrypt, get_object, get_state, log, retrieve_credentials, send_get, send_post,
     EnigmatickState, Profile, ENCRYPT_FN,
 };
 use anyhow::{anyhow, Result};
 use base64::engine::{general_purpose, Engine as _};
-use gloo_net::http::Request;
 use jdt_activity_pub::{
     ActivityPub, ApActivity, ApCollection, ApCreate, ApInstrument, ApNote, ApObject, Collectible,
 };
@@ -324,7 +323,7 @@ pub async fn get_timeline(
         authenticated(
             move |_state: EnigmatickState, profile: Profile| async move {
                 let username = profile.username;
-                
+
                 // If retrieving the Direct view, we want to wait for decrypt_task to transform
                 // any pending EncryptedNotes before retrieving the Vault collection. Otherwise,
                 // launch the task in the background to avoid delaying page load.
@@ -362,33 +361,15 @@ pub async fn get_timeline(
         .await
     } else {
         log("IN NOT authenticated");
-        let resp = Request::get(&format!(
-            "/inbox?limit={limit}{position}&view=global{hashtags}"
-        ))
-        .header("Content-Type", "application/activity+json")
-        .send()
+        let object: ApCollection = get_object(
+            format!("/inbox?limit={limit}{position}&view=global{hashtags}"),
+            None,
+            "application/activity+json",
+        )
         .await
         .ok()?;
 
-        let text = resp.text().await.ok()?;
-        log(&text);
-        if let ApObject::Collection(object) = serde_json::from_str(&text)
-            .map_err(|e| {
-                log(&format!("FAILED TO CONVERT TEXT TO COLLECTION: {e:#?}"));
-                anyhow!("FAILED TO CONVERT TEXT TO COLLECTION: {e:#?}")
-            })
-            .ok()?
-        {
-            //object.ordered_items.map(|items| serde_json::to_string(&items).unwrap())
-            log("OBJECT!");
-
-            let object = serde_json::to_string(&object).ok();
-            log(&format!("{object:#?}"));
-            object
-        } else {
-            log(&format!("FAILED TO CONVERT TEXT TO COLLECTION\n{text:#}"));
-            None
-        }
+        serde_json::to_string(&object).ok()
     }
 }
 

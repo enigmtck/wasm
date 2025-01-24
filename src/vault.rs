@@ -1,13 +1,22 @@
 use base64::{engine::general_purpose, engine::Engine as _};
 use jdt_activity_pub::ApCollection;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::wasm_bindgen;
 
-use crate::{authenticated, EnigmatickState, Profile, send_post, encrypt, resolve_processed_item, get_hash, log, send_get, error};
-
+use crate::{
+    authenticated, encrypt, error, get_hash, log, resolve_processed_item, send_get, send_post,
+    EnigmatickState, Profile,
+};
 
 #[wasm_bindgen]
-pub async fn store_to_vault(data: String, remote_actor: String, resolves: String, session_uuid: String, session: String, mutation_of: String) -> Option<String> {
+pub async fn store_to_vault(
+    data: String,
+    remote_actor: String,
+    resolves: String,
+    session_uuid: String,
+    session: String,
+    mutation_of: String,
+) -> Option<String> {
     authenticated(move |_: EnigmatickState, profile: Profile| async move {
         #[derive(Serialize, Debug, Clone)]
         pub struct SessionUpdate {
@@ -16,33 +25,41 @@ pub async fn store_to_vault(data: String, remote_actor: String, resolves: String
             pub session_hash: String,
             pub mutation_of: String,
         }
-        
+
         #[derive(Serialize, Debug, Clone)]
         pub struct VaultStorageRequest {
             pub data: String,
             pub remote_actor: String,
-            pub session: SessionUpdate
+            pub session: SessionUpdate,
         }
 
-        if let (Ok(encrypted_session), Some(session_hash)) = (encrypt(None, session.clone()), get_hash(session.into_bytes())) {
+        if let (Ok(encrypted_session), Some(session_hash)) = (
+            encrypt(None, session.clone()),
+            get_hash(session.into_bytes()),
+        ) {
             let session = SessionUpdate {
                 session_uuid,
                 encrypted_session,
                 session_hash,
-                mutation_of
+                mutation_of,
             };
-        
-            let url = format!("/api/user/{}/vault",
-                              profile.username.clone());
+
+            let url = format!("/api/user/{}/vault", profile.username.clone());
 
             if let Ok(data) = encrypt(None, data) {
-                if send_post(url,
-                             serde_json::to_string(&VaultStorageRequest {
-                                 data,
-                                 remote_actor,
-                                 session
-                             }).unwrap(),
-                             "application/json".to_string()).await.is_some() {
+                if send_post(
+                    url,
+                    serde_json::to_string(&VaultStorageRequest {
+                        data,
+                        remote_actor,
+                        session,
+                    })
+                    .unwrap(),
+                    "application/json".to_string(),
+                )
+                .await
+                .is_some()
+                {
                     resolve_processed_item(resolves).await
                 } else {
                     None
@@ -53,7 +70,8 @@ pub async fn store_to_vault(data: String, remote_actor: String, resolves: String
         } else {
             None
         }
-    }).await
+    })
+    .await
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone)]
@@ -68,13 +86,13 @@ pub struct VaultRetrievalItem {
 #[wasm_bindgen]
 pub async fn get_vault(offset: i32, limit: i32, actor: String) -> Option<String> {
     log("IN get vault");
-    
+
     authenticated(move |_: EnigmatickState, profile: Profile| async move {
         let username = profile.username.clone();
 
         let actor = general_purpose::STANDARD.encode(actor);
         let url = format!("/api/user/{username}/vault?offset={offset}&limit={limit}&actor={actor}");
-        
+
         if let Some(data) = send_get(None, url, "application/json".to_string()).await {
             error(&format!("VAULT RESPONSE\n{:#?}", data));
             // if let Ok(items) = serde_json::from_str::<Vec<VaultRetrievalItem>>(&data) {
@@ -91,6 +109,6 @@ pub async fn get_vault(offset: i32, limit: i32, actor: String) -> Option<String>
         } else {
             Option::None
         }
-    }).await
+    })
+    .await
 }
-

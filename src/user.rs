@@ -1,8 +1,7 @@
 use std::collections::HashMap;
 
 use base64::{engine::general_purpose, engine::Engine as _};
-use gloo_net::http::Request;
-use jdt_activity_pub::{ApActor, ApAddress, ApCollection, ApInstrument, ApObject};
+use jdt_activity_pub::{ApActor, ApAddress, ApCollection, ApInstrument};
 use orion::{aead, kdf};
 use rsa::pkcs8::{EncodePrivateKey, EncodePublicKey, LineEnding};
 use serde::{Deserialize, Serialize};
@@ -10,7 +9,9 @@ use vodozemac::olm::Account;
 use wasm_bindgen::prelude::wasm_bindgen;
 
 use crate::{
-    authenticated, decrypt, derive_key, encode_derived_key, encrypt, get_hash, get_key_pair, get_state, log, send_get, send_post, update_state, update_state_password, upload_file, EnigmatickState
+    authenticated, decrypt, derive_key, encode_derived_key, encrypt, get_hash, get_key_pair,
+    get_object, log, post_object, send_get, send_post, update_state, update_state_password,
+    upload_file, EnigmatickState,
 };
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -63,16 +64,15 @@ pub async fn authenticate(username: String, password_str: String) -> Option<Prof
         password: general_purpose::STANDARD.encode(password_hash),
     };
 
-    let user = Request::post("/api/user/authenticate")
-        .json(&req)
-        .ok()?
-        .send()
-        .await
-        .ok()?
-        .json::<Profile>()
-        .await
-        .ok()?;
+    let response = post_object(
+        "/api/user/authenticate".to_string(),
+        req,
+        "application/json",
+        None,
+    )
+    .await?;
 
+    let user: Profile = serde_json::from_str(&response).ok()?;
     log(&format!("PROFILE\n{user:#?}"));
 
     update_state(|state| {
@@ -86,7 +86,7 @@ pub async fn authenticate(username: String, password_str: String) -> Option<Prof
         user.salt.clone(),
         user.client_private_key.clone(),
         user.olm_pickled_account.clone(),
-    ) { 
+    ) {
         let derived_key = derive_key(password_str, salt).ok()?;
         let encoded_derived_key = encode_derived_key(&derived_key);
 
@@ -105,7 +105,10 @@ pub async fn authenticate(username: String, password_str: String) -> Option<Prof
         .ok()?;
 
         let pickled_account = decrypt(Some(encoded_derived_key), pickled_account).ok()?;
-        log(&format!("Olm Pickled Account Hash: {}", get_hash(pickled_account.clone().into_bytes()).unwrap_or_default()));
+        log(&format!(
+            "Olm Pickled Account Hash: {}",
+            get_hash(pickled_account.clone().into_bytes()).unwrap_or_default()
+        ));
         update_state(|state| {
             state.set_olm_pickled_account(pickled_account);
             Ok(())
@@ -163,9 +166,14 @@ pub async fn create_user(
     };
 
     async {
-        let x = Request::post("/api/user/create").json(&req).ok()?;
-        let y = x.send().await.ok()?;
-        let user: Option<Profile> = y.json().await.ok()?;
+        let response = post_object(
+            "/api/user/create".to_string(),
+            req,
+            "application/json",
+            None,
+        )
+        .await?;
+        let user: Option<Profile> = serde_json::from_str(&response).ok();
 
         if let Some(user) = user.clone() {
             update_state(|state| {
@@ -190,9 +198,8 @@ pub async fn get_mls_keys() -> Option<ApCollection> {
             send_get(None, keys, "application/activity+json".to_string()).await
         },
     )
-    .await.and_then(|x| {
-        serde_json::from_str(&x).ok()
-    })
+    .await
+    .and_then(|x| serde_json::from_str(&x).ok())
 }
 
 pub async fn get_olm_account() -> Option<ApInstrument> {
@@ -203,31 +210,30 @@ pub async fn get_olm_account() -> Option<ApInstrument> {
             send_get(None, inbox, "application/activity+json".to_string()).await
         },
     )
-    .await.and_then(|x| {
-        serde_json::from_str(&x).ok()
-    })
+    .await
+    .and_then(|x| serde_json::from_str(&x).ok())
 }
 
 #[wasm_bindgen]
 pub async fn upload_image(data: &[u8], length: u32) -> Option<String> {
-    authenticated(move |state: EnigmatickState, profile: Profile| async move {
+    authenticated(move |_: EnigmatickState, profile: Profile| async move {
         let upload = format!("/api/user/{}/image", profile.username.clone());
 
-        upload_file(state.server_name.unwrap(), upload, data, length).await
+        upload_file(None, upload, data, length).await
     })
     .await
 }
 
 #[wasm_bindgen]
 pub async fn upload_avatar(data: &[u8], length: u32, extension: String) {
-    authenticated(move |state: EnigmatickState, profile: Profile| async move {
+    authenticated(move |_: EnigmatickState, profile: Profile| async move {
         let upload = format!(
             "/api/user/{}/avatar?extension={}",
             profile.username.clone(),
             extension
         );
 
-        upload_file(state.server_name.unwrap(), upload, data, length).await;
+        upload_file(None, upload, data, length).await;
 
         None
     })
@@ -236,14 +242,14 @@ pub async fn upload_avatar(data: &[u8], length: u32, extension: String) {
 
 #[wasm_bindgen]
 pub async fn upload_banner(data: &[u8], length: u32, extension: String) {
-    authenticated(move |state: EnigmatickState, profile: Profile| async move {
+    authenticated(move |_: EnigmatickState, profile: Profile| async move {
         let upload = format!(
             "/api/user/{}/banner?extension={}",
             profile.username.clone(),
             extension
         );
 
-        upload_file(state.server_name.unwrap(), upload, data, length).await;
+        upload_file(None, upload, data, length).await;
 
         None
     })
@@ -343,7 +349,8 @@ impl OtkUpdateParams {
     }
 
     pub fn set_account(&mut self, account: String) -> Self {
-        self.account_hash = get_hash(account.clone().into_bytes()).expect("get_hash shouldn't fail");
+        self.account_hash =
+            get_hash(account.clone().into_bytes()).expect("get_hash shouldn't fail");
         self.account = encrypt(None, account).expect("ACCOUNT ENCRYPTION FAILED");
 
         self.clone()
@@ -452,18 +459,13 @@ pub async fn get_following(username: String, page: Option<u32>) -> Option<String
 
 #[wasm_bindgen]
 pub async fn get_profile_by_username(username: String) -> Option<String> {
-    let server_url = get_state().server_url.clone()?;
-
-    let resp = Request::get(&format!("{server_url}/api/user/{username}"))
-        .header("Content-Type", "application/activity+json")
-        .header("Accept", "application/activity+json")
-        .send()
-        .await
-        .ok()?;
-
-    let text = resp.text().await.ok()?;
-
-    let actor = serde_json::from_str::<ApActor>(&text).ok()?;
+    let actor: ApActor = get_object(
+        format!("/api/user/{username}"),
+        None,
+        "application/activity+json",
+    )
+    .await
+    .ok()?;
 
     Some(serde_json::to_string(&actor).unwrap())
 }

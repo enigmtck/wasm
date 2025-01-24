@@ -1,6 +1,5 @@
-use crate::{get_state, log, send_get};
-use gloo_net::http::Request;
-use jdt_activity_pub::ApObject;
+use crate::{get_object, get_state, log, send_get};
+use jdt_activity_pub::ApCollection;
 use wasm_bindgen::prelude::wasm_bindgen;
 
 #[wasm_bindgen]
@@ -29,16 +28,10 @@ pub async fn get_outbox(
     if get_state().authenticated {
         send_get(None, outbox?, "application/activity+json".to_string()).await
     } else {
-        let resp = Request::get(&outbox?)
-            .header("Content-Type", "application/activity+json")
-            .send()
+        let collection: ApCollection = get_object(outbox?, None, "application/activity+json")
             .await
             .ok()?;
 
-        if let Ok(ApObject::Collection(object)) = resp.json().await {
-            serde_json::to_string(&object).ok()
-        } else {
-            None
-        }
+        serde_json::to_string(&collection).ok()
     }
 }

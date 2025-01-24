@@ -2,7 +2,10 @@
 
 use std::collections::HashMap;
 
-use crate::{add_one_time_keys, authenticated, get_hash, get_state, log, send_get, EnigmatickState, OtkUpdateParams, Profile};
+use crate::{
+    add_one_time_keys, authenticated, get_hash, get_state, log, send_get, EnigmatickState,
+    OtkUpdateParams, Profile,
+};
 use jdt_activity_pub::ApCollection;
 use serde::{Deserialize, Serialize};
 use vodozemac::olm::{Account, AccountPickle, OlmMessage, Session, SessionConfig, SessionPickle};
@@ -143,9 +146,8 @@ pub fn get_one_time_keys(keys: usize) -> Option<OtkUpdateParams> {
     let original_pickled_account_hash = get_hash(original_pickled_account.clone().into_bytes())?;
 
     log("AFTER original_pickled_account_hash");
-    let mut account = Account::from(
-        serde_json::from_str::<AccountPickle>(&original_pickled_account).ok()?,
-    );
+    let mut account =
+        Account::from(serde_json::from_str::<AccountPickle>(&original_pickled_account).ok()?);
 
     log("AFTER account");
     account.generate_one_time_keys(keys);
@@ -158,9 +160,9 @@ pub fn get_one_time_keys(keys: usize) -> Option<OtkUpdateParams> {
         .map(|(k, v)| (k, v.to_base64()))
         .collect();
 
-    log("AFTER hashmap");  
+    log("AFTER hashmap");
     account.mark_keys_as_published();
-    
+
     log("AFTER published");
     let updated_pickled_account = serde_json::to_string(&account.pickle()).ok()?;
 

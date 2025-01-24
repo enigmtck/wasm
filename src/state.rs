@@ -73,7 +73,7 @@ impl Default for EnigmatickState {
 impl EnigmatickState {
     pub fn new() -> EnigmatickState {
         console_error_panic_hook::set_once();
-        
+
         EnigmatickState::default()
     }
 

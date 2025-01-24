@@ -3,10 +3,10 @@
 use anyhow::Result;
 use base64::{engine::general_purpose, engine::Engine as _};
 use futures::Future;
-use gloo_net::http::Request;
 use jdt_activity_pub::ApAttachment;
 use lazy_static::lazy_static;
 use regex::Regex;
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::{
@@ -15,9 +15,11 @@ use std::{
 };
 use wasm_bindgen::prelude::*;
 
+#[cfg(target_arch = "wasm32")]
+use gloo_net::http::Request;
+
 pub mod actor;
 pub mod announce;
-pub mod cache;
 pub mod crypto;
 pub mod delete;
 pub mod follow;
@@ -37,9 +39,11 @@ pub mod timeline;
 pub mod user;
 pub mod vault;
 
+#[cfg(target_arch = "wasm32")]
+pub mod cache;
+
 pub use actor::*;
 pub use announce::*;
-pub use cache::*;
 pub use crypto::*;
 pub use delete::*;
 pub use follow::*;
@@ -57,6 +61,9 @@ pub use stream::*;
 pub use timeline::*;
 pub use user::*;
 pub use vault::*;
+
+#[cfg(target_arch = "wasm32")]
+pub use cache::*;
 
 lazy_static! {
     pub static ref HANDLE_RE: Regex =
@@ -128,6 +135,219 @@ impl fmt::Display for Method {
     }
 }
 
+#[cfg(target_arch = "wasm32")]
+pub async fn get_object<T: DeserializeOwned>(
+    url: String,
+    signature: Option<SignResponse>,
+    content_type: &str,
+) -> Result<T> {
+    let mut request = Request::get(&url);
+
+    if let Some(signature) = signature {
+        request = request
+            .header("Enigmatick-Date", &signature.date)
+            .header("Signature", &signature.signature);
+    }
+
+    let resp = request.header("Content-Type", content_type).send().await?;
+    resp.json::<T>().await.map_err(anyhow::Error::msg)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub async fn get_object<T: DeserializeOwned>(
+    url: String,
+    signature: Option<SignResponse>,
+    content_type: &str,
+) -> Result<T> {
+    let client = reqwest::Client::new();
+    let mut client = client.get(&url);
+
+    if let Some(signature) = signature {
+        client = client.header("Enigmatick-Date", &signature.date);
+        client = client.header("Signature", &signature.signature);
+    }
+
+    let resp = client.header("Content-Type", content_type).send().await?;
+    resp.json::<T>().await.map_err(anyhow::Error::msg)
+}
+
+#[cfg(target_arch = "wasm32")]
+pub async fn get_string(
+    url: String,
+    signature: Option<SignResponse>,
+    content_type: &str,
+) -> Result<Option<String>> {
+    let mut request = Request::get(&url);
+
+    if let Some(signature) = signature {
+        request = request
+            .header("Enigmatick-Date", &signature.date)
+            .header("Signature", &signature.signature);
+    }
+
+    let response = request.header("Content-Type", content_type).send().await?;
+
+    if response.ok() {
+        Ok(response.text().await.ok())
+    } else {
+        Ok(None)
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub async fn get_string(
+    url: String,
+    signature: Option<SignResponse>,
+    content_type: &str,
+) -> Result<Option<String>> {
+    let client = reqwest::Client::new();
+    let mut client = client.get(url);
+
+    if let Some(signature) = signature {
+        client = client
+            .header("Enigmatick-Date", &signature.date)
+            .header("Signature", &signature.signature);
+    }
+
+    let response = client.header("Content-Type", content_type).send().await?;
+
+    if response.status().is_success() {
+        Ok(response.text().await.ok())
+    } else {
+        Ok(None)
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+pub async fn post_string(
+    url: String,
+    body: String,
+    content_type: &str,
+    signature: Option<SignResponse>,
+) -> Option<String> {
+    let mut client = Request::post(&url);
+    if let Some(signature) = signature {
+        client = client
+            .header("Enigmatick-Date", &signature.date)
+            .header("Digest", &signature.digest.unwrap())
+            .header("Signature", &signature.signature);
+    }
+
+    Some(
+        client
+            .header("Content-Type", &content_type)
+            .body(body)
+            .send()
+            .await
+            .ok()?
+            .text()
+            .await
+            .ok()?
+            .to_string(),
+    )
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub async fn post_string(
+    url: String,
+    body: String,
+    content_type: &str,
+    signature: Option<SignResponse>,
+) -> Option<String> {
+    let client = reqwest::Client::new();
+    let mut client = client.post(url);
+
+    if let Some(signature) = signature {
+        client = client
+            .header("Enigmatick-Date", &signature.date)
+            .header("Digest", &signature.digest.unwrap())
+            .header("Signature", &signature.signature);
+    }
+
+    Some(
+        client
+            .header("Content-Type", content_type)
+            .body(body.clone())
+            .send()
+            .await
+            .ok()?
+            .text()
+            .await
+            .ok()?
+            .to_string(),
+    )
+}
+
+pub async fn post_object<T: Serialize>(
+    url: String,
+    object: T,
+    content_type: &str,
+    signature: Option<SignResponse>,
+) -> Option<String> {
+    let body = serde_json::to_string(&object).ok()?;
+    post_string(url, body, content_type, signature).await
+}
+
+#[cfg(target_arch = "wasm32")]
+pub async fn post_bytes(
+    url: &String,
+    bytes: &[u8],
+    length: u32,
+    content_type: &String,
+    signature: Option<SignResponse>,
+) -> Option<String> {
+    let j_bytes = js_sys::Uint8Array::new_with_length(length);
+    j_bytes.copy_from(bytes);
+
+    let mut client = Request::post(url);
+
+    if let Some(signature) = signature {
+        client = client
+            .header("Enigmatick-Date", &signature.date)
+            .header("Digest", &signature.digest.unwrap())
+            .header("Signature", &signature.signature);
+    }
+
+    client
+        .header("Content-Type", content_type)
+        .body(j_bytes)
+        .send()
+        .await
+        .ok()?
+        .text()
+        .await
+        .ok()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub async fn post_bytes(
+    url: &String,
+    bytes: &[u8],
+    _length: u32,
+    content_type: &String,
+    signature: Option<SignResponse>,
+) -> Option<String> {
+    let client = reqwest::Client::new();
+    let mut client = client.post(url);
+
+    if let Some(signature) = signature {
+        client = client
+            .header("Enigmatick-Date", &signature.date)
+            .header("Digest", &signature.digest.unwrap())
+            .header("Signature", &signature.signature);
+    }
+
+    client
+        .header("Content-Type", content_type)
+        .body(bytes.to_vec())
+        .send()
+        .await
+        .ok()?
+        .text()
+        .await
+        .ok()
+}
+
 pub async fn send_post(url: String, body: String, content_type: String) -> Option<String> {
     let signature = {
         let state = get_state();
@@ -143,21 +363,7 @@ pub async fn send_post(url: String, body: String, content_type: String) -> Optio
         })?
     };
 
-    Some(
-        Request::post(&url)
-            .header("Enigmatick-Date", &signature.date)
-            .header("Digest", &signature.digest.unwrap())
-            .header("Signature", &signature.signature)
-            .header("Content-Type", &content_type)
-            .body(body)
-            .send()
-            .await
-            .ok()?
-            .text()
-            .await
-            .ok()?
-            .to_string(),
-    )
+    post_string(url, body, &content_type, Some(signature)).await
 }
 
 pub async fn send_get_promise(
@@ -179,34 +385,14 @@ pub async fn send_get_promise(
         })
     };
 
-    let mut request = Request::get(&url);
-
-    if let Some(signature) = signature {
-        request = request
-            .header("Enigmatick-Date", &signature.date)
-            .header("Signature", &signature.signature);
-    }
-
-    let response = request
-        .header("Content-Type", &content_type)
-        .send()
+    let response = get_string(url, signature, &content_type)
         .await
-        .map_err(|x| JsValue::from(x.to_string()))?;
+        .map_err(|x| JsValue::from(x.to_string()))?
+        .ok_or(JsValue::UNDEFINED)?;
 
-    // The ? above unwraps the Result. The ok() below checks that the Response
-    // is 200ish
-    if !response.ok() {
-        return Err(JsValue::UNDEFINED);
-    }
-
-    let response_text = response
-        .text()
-        .await
-        .map_err(|x| JsValue::from(x.to_string()))?;
-
-    match response_text.as_str() {
+    match response.as_str() {
         "" => Err(JsValue::UNDEFINED),
-        _ => Ok(JsValue::from(response_text)),
+        _ => Ok(JsValue::from(response)),
     }
 }
 
@@ -229,56 +415,38 @@ pub async fn send_get(
         })
     };
 
-    let mut request = Request::get(&url);
-
-    if let Some(signature) = signature {
-        request = request
-            .header("Enigmatick-Date", &signature.date)
-            .header("Signature", &signature.signature);
-    }
-
-    let response = request
-        .header("Content-Type", &content_type)
-        .send()
-        .await
-        .ok()?;
-
-    // The ok()? above unwraps the Result. The ok() below checks that the Response
-    // is 200ish
-    if response.ok() {
-        response.text().await.ok()
-    } else {
-        None
-    }
+    get_string(url, signature, &content_type).await.ok()?
 }
 
 pub async fn upload_file(
-    server_name: String,
-    upload: String,
+    server_name: Option<String>,
+    url: String,
     data: &[u8],
     length: u32,
 ) -> Option<String> {
-    let j = js_sys::Uint8Array::new_with_length(length);
-    j.copy_from(data);
+    let signature = {
+        let state = get_state();
 
-    let signature = sign(SignParams {
-        host: server_name,
-        request_target: upload.clone(),
-        body: None,
-        data: Some(Vec::from(data)),
-        method: Method::Post,
-    })?;
+        let url = url.split('?').collect::<Vec<&str>>()[0];
+        sign(SignParams {
+            host: server_name.unwrap_or(state.server_name?),
+            request_target: url.to_string(),
+            body: None,
+            data: Some(Vec::from(data)),
+            method: Method::Post,
+        })?
+    };
 
-    if let Ok(resp) = Request::post(&upload)
-        .header("Enigmatick-Date", &signature.date)
-        .header("Digest", &signature.digest.unwrap())
-        .header("Signature", &signature.signature)
-        .header("Content-Type", "application/octet-stream")
-        .body(j)
-        .send()
-        .await
+    if let Some(resp) = post_bytes(
+        &url,
+        data,
+        length,
+        &"application/octet-stream".to_string(),
+        Some(signature),
+    )
+    .await
     {
-        if let Ok(attachment) = resp.json::<ApAttachment>().await {
+        if let Ok(attachment) = serde_json::from_str::<ApAttachment>(&resp) {
             log(&format!("upload completed\n{attachment:#?}"));
             Some(serde_json::to_string(&attachment).unwrap())
         } else {

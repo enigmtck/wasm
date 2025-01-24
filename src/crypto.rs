@@ -1,3 +1,4 @@
+use anyhow::{anyhow, Result};
 use base64::{engine::general_purpose, engine::Engine as _};
 use orion::hash::digest;
 use orion::kdf;
@@ -8,12 +9,8 @@ use rsa::{pkcs1v15::SigningKey, pkcs8::DecodePrivateKey, RsaPrivateKey, RsaPubli
 use sha2::{Digest, Sha256};
 use std::error::Error;
 use wasm_bindgen::prelude::wasm_bindgen;
-use anyhow::{Result, anyhow};
 
-use crate::{
-    date_now, get_state, EnigmatickState,
-    Method, Profile,
-};
+use crate::{date_now, get_state, EnigmatickState, Method, Profile};
 
 pub struct KeyPair {
     pub private_key: RsaPrivateKey,
@@ -164,9 +161,7 @@ pub fn derive_key(password_str: String, encoded_salt: String) -> Result<SecretKe
 }
 
 #[wasm_bindgen]
-pub fn decrypt_text(
-    encoded_data: String
-) -> String {
+pub fn decrypt_text(encoded_data: String) -> String {
     decrypt(None, encoded_data).unwrap_or_default()
 }
 
@@ -245,7 +240,9 @@ pub fn get_key() -> Result<Vec<u8>> {
         .clone()
         .ok_or(anyhow!("derived_key missing"))?;
 
-    general_purpose::STANDARD.decode(derived_key).map_err(anyhow::Error::msg)
+    general_purpose::STANDARD
+        .decode(derived_key)
+        .map_err(anyhow::Error::msg)
 }
 
 // Add Send + Sync bounds

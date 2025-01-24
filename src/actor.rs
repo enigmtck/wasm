@@ -4,10 +4,10 @@ use js_sys::Promise;
 use wasm_bindgen::prelude::wasm_bindgen;
 use wasm_bindgen_futures::future_to_promise;
 
-use crate::{
-    get_state, send_get, send_get_promise,
-    EnigmatickCache, HANDLE_RE, URL_RE,
-};
+use crate::{get_state, send_get, send_get_promise, HANDLE_RE, URL_RE};
+
+#[cfg(target_arch = "wasm32")]
+use crate::EnigmatickCache;
 
 #[wasm_bindgen]
 pub async fn get_remote_resource(
@@ -74,6 +74,7 @@ pub fn get_actor_from_webfinger_promise(webfinger: String) -> Promise {
     future_to_promise(send_get_promise(None, url, "application/json".to_string()))
 }
 
+#[cfg(target_arch = "wasm32")]
 #[wasm_bindgen]
 pub async fn get_actor_cached(cache: &EnigmatickCache, id: String) -> Option<Promise> {
     if let Some(promise) = cache.get(&id.clone()) {

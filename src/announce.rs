@@ -1,10 +1,7 @@
 use jdt_activity_pub::{ApAnnounce, ApUndo};
 use wasm_bindgen::prelude::wasm_bindgen;
 
-use crate::{
-    authenticated, log, send_post, EnigmatickState,
-    Profile,
-};
+use crate::{authenticated, log, send_post, EnigmatickState, Profile};
 
 #[wasm_bindgen]
 pub async fn send_announce(object: String) -> Option<String> {

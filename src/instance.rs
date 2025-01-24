@@ -1,8 +1,7 @@
-use gloo_net::http::Request;
-use serde::{Serialize, Deserialize};
+use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::wasm_bindgen;
 
-use crate::update_state;
+use crate::{get_object, update_state};
 
 #[wasm_bindgen(getter_with_clone)]
 #[derive(Serialize, Deserialize, Default, Clone)]
@@ -32,17 +31,17 @@ pub struct InstanceInformation {
 }
 
 #[wasm_bindgen]
-pub async fn load_instance_information() -> Option<InstanceInformation> {
-    let url = "/api/v2/instance";
+pub async fn load_instance_information(url: Option<String>) -> Option<InstanceInformation> {
+    let url = format!("{}/api/v2/instance", url.unwrap_or_default());
 
-    let resp = Request::get(url).send().await.ok()?;
-    let instance = resp.json::<InstanceInformation>().await.ok()?;
-    
+    let instance: InstanceInformation = get_object(url, None, "application/json").await.ok()?;
+
     update_state(|state| {
         state.set_server_name(instance.domain.clone());
         state.set_server_url(instance.url.clone());
         Ok(())
-    }).ok();
-    
+    })
+    .ok();
+
     Some(instance)
 }
