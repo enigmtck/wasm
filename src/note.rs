@@ -36,7 +36,7 @@ impl SendParams {
             .hashtags
             .iter()
             .map(|x| {
-                ApTag::HashTag(ApHashtag {
+                ApTag::Hashtag(ApHashtag {
                     kind: ApHashtagType::Hashtag,
                     name: x.to_string(),
                     href: format!(

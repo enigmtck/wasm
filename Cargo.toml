@@ -45,10 +45,10 @@ openmls = { version = "0.6.0", features = ["js", "openmls_rust_crypto"] }
 openmls_rust_crypto = "0.3.0"
 openmls_basic_credential = { version = "0.3.0", features = ["clonable"] }
 serde_with = "3.12.0"
-jdt_activity_pub = "0.2.7"
+jdt_activity_pub = "0.2.23"
 #jdt_activity_pub = { path = "../../../../libs/activity_pub" }
-jdt_maybe_multiple = "0.1.0"
-jdt_maybe_reference = "0.1.7"
+jdt_maybe_multiple = "0.1.2"
+jdt_maybe_reference = "0.1.9"
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 gloo-net = { version = "0.2", features = ["json", "eventsource"] }
