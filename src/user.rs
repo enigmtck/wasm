@@ -217,7 +217,7 @@ pub async fn get_olm_account() -> Option<ApInstrument> {
 #[wasm_bindgen]
 pub async fn upload_image(data: &[u8], length: u32) -> Option<String> {
     authenticated(move |_: EnigmatickState, profile: Profile| async move {
-        let upload = format!("/api/user/{}/image", profile.username.clone());
+        let upload = format!("/api/user/{}/media", profile.username.clone());
 
         upload_file(None, upload, data, length).await
     })

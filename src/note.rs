@@ -127,7 +127,7 @@ impl SendParams {
                     vec![].into()
                 }
             },
-            content: self.content.clone(),
+            content: Some(self.content.clone()),
             in_reply_to: self.in_reply_to.clone(),
             conversation: self.conversation.clone(),
             instrument,

@@ -142,7 +142,7 @@ pub async fn get_timeline(
         group: MlsGroup,
     ) -> Result<Vec<ApInstrument>> {
         let mut instruments = vec![];
-        let encrypted_decoded = general_purpose::STANDARD.decode(note.content).unwrap();
+        let encrypted_decoded = general_purpose::STANDARD.decode(note.content.ok_or(anyhow!("content must be Some"))?).unwrap();
         let encrypted_deserialized =
             MlsMessageIn::tls_deserialize(&mut encrypted_decoded.as_slice()).unwrap();
 
@@ -250,7 +250,7 @@ pub async fn get_timeline(
     fn transform_encrypted_activity(create: ApCreate, mut note: ApNote) -> Option<ActivityPub> {
         find_vault_instrument(&create).and_then(|instrument| {
             decrypt_instrument_content(&instrument).map(|decrypted| {
-                note.content = decrypted;
+                note.content = Some(decrypted);
                 build_activity(create.clone(), note.clone())
             })
         })
