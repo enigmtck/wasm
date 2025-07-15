@@ -9,7 +9,7 @@ use base64::engine::{general_purpose, Engine as _};
 use jdt_activity_pub::{
     ActivityPub, ApActivity, ApCollection, ApCreate, ApInstrument, ApNote, ApObject, Collectible,
 };
-use jdt_maybe_reference::MaybeReference;
+use jdt_activity_pub::MaybeReference;
 use openmls::{
     group::{GroupId, MlsGroup, MlsGroupJoinConfig, StagedWelcome},
     prelude::{

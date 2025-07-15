@@ -1,5 +1,5 @@
 use jdt_activity_pub::{ApAddress, ApLike, ApUndo};
-use jdt_maybe_multiple::MaybeMultiple;
+use jdt_activity_pub::MaybeMultiple;
 use wasm_bindgen::prelude::wasm_bindgen;
 
 use crate::{authenticated, log, send_post, EnigmatickState, Profile};

@@ -1,9 +1,9 @@
 use anyhow::Result;
 use jdt_activity_pub::{
     ApAddress, ApAttachment, ApContext, ApHashtag, ApHashtagType, ApInstrument, ApMention,
-    ApMentionType, ApNote, ApNoteType, ApObject, ApTag, Collectible,
+    ApMentionType, ApNote, ApNoteType, ApObject, ApTag, Collectible, MaybeReference,
 };
-use jdt_maybe_multiple::MaybeMultiple;
+use jdt_activity_pub::MaybeMultiple;
 use serde::Serialize;
 use std::{collections::HashMap, fmt::Debug};
 use wasm_bindgen::prelude::wasm_bindgen;
@@ -128,7 +128,13 @@ impl SendParams {
                 }
             },
             content: Some(self.content.clone()),
-            in_reply_to: self.in_reply_to.clone(),
+            in_reply_to: {
+                if let Some(in_reply_to) = self.in_reply_to.clone() {
+                    MaybeMultiple::Single(MaybeReference::Reference(in_reply_to))
+                } else {
+                    MaybeMultiple::None
+                }
+            },
             conversation: self.conversation.clone(),
             instrument,
             ..Default::default()
