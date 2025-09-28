@@ -57,7 +57,7 @@ pub async fn get_mkp_collection() -> Option<ApCollection> {
 pub async fn replenish_mkp() -> Option<bool> {
     let mkp_collection = get_mkp_collection().await?;
 
-    log(&format!("{mkp_collection:#?}"));
+    //log(&format!("{mkp_collection:#?}"));
 
     if mkp_collection.total_items? < 20 {
         let (credentials_key_pair, provider, mutation_of) = retrieve_credentials().await.ok()?;
@@ -147,7 +147,7 @@ pub async fn initialize_credentials() {
     let collection = ApCollection::from(instruments);
 
     let resp = send_object(ApObject::Collection(collection)).await;
-    log(&format!("Response: {resp:#?}"));
+    //log(&format!("Response: {resp:#?}"));
 }
 
 #[wasm_bindgen]
@@ -198,7 +198,7 @@ pub async fn test() {
     // ... and the crypto provider to use.
     let provider = &OpenMlsRustCrypto::default();
 
-    log("Generate identifying credentials");
+    //log("Generate identifying credentials");
     // First they need credentials to identify them
     let (sasha_credential_with_key, sasha_signer) = generate_credential_with_key(
         "Sasha".into(),
@@ -272,17 +272,17 @@ pub async fn test() {
         |data: Vec<u8>| -> Vec<u8> { encrypt_bytes(None, data.as_slice()).unwrap() },
         HASH_FN,
     ));
-    log(&format!(
-        "Sasha Storage Instrument: {storage_instrument:#?}"
-    ));
+    //log(&format!(
+    //    "Sasha Storage Instrument: {storage_instrument:#?}"
+    //));
 
     let group_instrument = ApInstrument::from(sasha_group.group_id().clone());
-    log(&format!("Sasha Group Instrument: {group_instrument:#?}"));
+    //log(&format!("Sasha Group Instrument: {group_instrument:#?}"));
 
     let welcome_instrument = ApInstrument::try_from(welcome_out).unwrap();
-    log(&format!(
-        "Sasha Welcome Instrument (to send to Maxim): {welcome_instrument:#?}"
-    ));
+    //log(&format!(
+    //    "Sasha Welcome Instrument (to send to Maxim): {welcome_instrument:#?}"
+    //));
 
     let welcome = Welcome::try_from(welcome_instrument).unwrap();
 
@@ -314,7 +314,7 @@ pub async fn test() {
     let encrypted_serialized = encrypted.tls_serialize_detached().unwrap();
     let encrypted_encoded = general_purpose::STANDARD.encode(encrypted_serialized);
 
-    log(&format!("First Post Encoded: {encrypted_encoded}"));
+    //log(&format!("First Post Encoded: {encrypted_encoded}"));
 
     let encrypted_decoded = general_purpose::STANDARD.decode(encrypted_encoded).unwrap();
     let encrypted_deserialized =
@@ -338,7 +338,7 @@ pub async fn test() {
             match message.into_content() {
                 ProcessedMessageContent::ApplicationMessage(message) => {
                     let message: String = String::from_utf8(message.into_bytes()).unwrap();
-                    log(&format!("Private Message: {message:#?}"));
+                    //log(&format!("Private Message: {message:#?}"));
                 }
                 _ => log(&format!("Something Else")),
             }
@@ -348,7 +348,7 @@ pub async fn test() {
                 .process_message(&provider_reloaded, msg)
                 .unwrap();
             let message = message.content();
-            log(&format!("Public Message: {message:#?}"));
+            //log(&format!("Public Message: {message:#?}"));
         }
         _ => log(&format!("Something Else")),
     };

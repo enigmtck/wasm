@@ -85,7 +85,7 @@ pub struct VaultRetrievalItem {
 
 #[wasm_bindgen]
 pub async fn get_vault(offset: i32, limit: i32, actor: String) -> Option<String> {
-    log("IN get vault");
+    //log("IN get vault");
 
     authenticated(move |_: EnigmatickState, profile: Profile| async move {
         let username = profile.username.clone();

@@ -11,9 +11,9 @@ pub async fn get_outbox(
     //log(&format!("REQUEST {username}"));
     //let (username, limit, kind, timestamp) = extract_outbox_elements(url);
 
-    log(&format!(
-        "USERNAME {username:#?} KIND {kind:#?} TIMESTAMP {timestamp:#?}"
-    ));
+    //log(&format!(
+    //    "USERNAME {username:#?} KIND {kind:#?} TIMESTAMP {timestamp:#?}"
+    //));
 
     let outbox = match (kind, timestamp) {
         (Some(kind), Some(timestamp)) => Some(format!(
@@ -23,7 +23,7 @@ pub async fn get_outbox(
         _ => None,
     };
 
-    log(&format!("OUTBOX {outbox:#?}"));
+    //log(&format!("OUTBOX {outbox:#?}"));
 
     if get_state().authenticated {
         send_get(None, outbox?, "application/activity+json".to_string()).await

@@ -78,18 +78,18 @@ pub fn get_actor_from_webfinger_promise(webfinger: String) -> Promise {
 #[wasm_bindgen]
 pub async fn get_actor_cached(cache: &EnigmatickCache, id: String) -> Option<Promise> {
     if let Some(promise) = cache.get(&id.clone()) {
-        log(&format!("SHORT CIRCUITING GET_ACTOR_CACHED: {id}"));
+        //log(&format!("SHORT CIRCUITING GET_ACTOR_CACHED: {id}"));
         return Some(promise);
     }
 
     if URL_RE.is_match(&id) {
-        log(&format!("GETTING ID: {id}"));
+        //log(&format!("GETTING ID: {id}"));
         let webfinger = get_webfinger_from_id(id.clone()).await?;
 
         let p = get_actor_from_webfinger_promise(webfinger);
         cache.set(&id, p.clone());
     } else if HANDLE_RE.is_match(&id) {
-        log(&format!("GETTING WEBFINGER: {id}"));
+        //log(&format!("GETTING WEBFINGER: {id}"));
 
         let p = get_actor_from_webfinger_promise(id.clone());
         cache.set(&id, p.clone());

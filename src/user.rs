@@ -1,11 +1,8 @@
-use std::collections::HashMap;
-
 use base64::{engine::general_purpose, engine::Engine as _};
 use jdt_activity_pub::{ApActor, ApAddress, ApCollection, ApInstrument};
 use orion::{aead, kdf};
 use rsa::pkcs8::{EncodePrivateKey, EncodePublicKey, LineEnding};
 use serde::{Deserialize, Serialize};
-use vodozemac::olm::Account;
 use wasm_bindgen::prelude::wasm_bindgen;
 
 use crate::{
@@ -73,7 +70,7 @@ pub async fn authenticate(username: String, password_str: String) -> Option<Prof
     .await?;
 
     let user: Profile = serde_json::from_str(&response).ok()?;
-    log(&format!("PROFILE\n{user:#?}"));
+    //log(&format!("PROFILE\n{user:#?}"));
 
     update_state(|state| {
         state.authenticated = true;
@@ -134,10 +131,6 @@ pub async fn create_user(
     let client_private_key = key.private_key.to_pkcs8_pem(LineEnding::default()).ok()?;
     let password = kdf::Password::from_slice(password_str.as_bytes()).ok()?;
 
-    let account = Account::new();
-    let olm_identity_key = Some(account.curve25519_key().to_base64());
-    let olm_pickled_account = serde_json::to_string(&account.pickle()).unwrap();
-
     let salt = kdf::Salt::default();
 
     let derived_key = kdf::derive_key(&password, &salt, 3, 1 << 4, 32).ok()?;
@@ -146,12 +139,7 @@ pub async fn create_user(
     let encoded_derived_key = general_purpose::STANDARD.encode(derived_key.unprotected_as_bytes());
 
     let cpk_ciphertext = aead::seal(&derived_key, client_private_key.as_bytes()).ok()?;
-    let olm_ciphertext = aead::seal(&derived_key, olm_pickled_account.as_bytes()).ok()?;
-
     let encrypted_client_private_key = general_purpose::STANDARD.encode(cpk_ciphertext);
-    let encrypted_olm_pickled_account = general_purpose::STANDARD.encode(olm_ciphertext);
-
-    let olm_pickled_account_hash = get_hash(olm_pickled_account.clone().into_bytes());
 
     let req = NewUser {
         username,
@@ -159,9 +147,9 @@ pub async fn create_user(
         display_name,
         client_public_key: Some(client_public_key),
         client_private_key: Some(encrypted_client_private_key.clone()),
-        olm_pickled_account: Some(encrypted_olm_pickled_account),
-        olm_pickled_account_hash,
-        olm_identity_key,
+        olm_pickled_account: None,
+        olm_pickled_account_hash: None,
+        olm_identity_key: None,
         salt,
     };
 
@@ -196,18 +184,6 @@ pub async fn get_mls_keys() -> Option<ApCollection> {
             let keys = format!("/user/{}/keys", state.get_profile()?.username);
 
             send_get(None, keys, "application/activity+json".to_string()).await
-        },
-    )
-    .await
-    .and_then(|x| serde_json::from_str(&x).ok())
-}
-
-pub async fn get_olm_account() -> Option<ApInstrument> {
-    authenticated(
-        move |_state: EnigmatickState, _profile: Profile| async move {
-            let inbox = format!("/api/instruments/olm-account");
-
-            send_get(None, inbox, "application/activity+json".to_string()).await
         },
     )
     .await
@@ -333,63 +309,6 @@ pub async fn update_summary(summary: String, markdown: String) -> Option<String>
     .await
 }
 
-#[wasm_bindgen(getter_with_clone)]
-#[derive(Serialize, Deserialize, Default, Clone)]
-pub struct OtkUpdateParams {
-    keys: HashMap<String, String>,
-    account: String,
-    mutation_of: String,
-    account_hash: String,
-}
-
-#[wasm_bindgen]
-impl OtkUpdateParams {
-    pub fn new() -> Self {
-        OtkUpdateParams::default()
-    }
-
-    pub fn set_account(&mut self, account: String) -> Self {
-        self.account_hash =
-            get_hash(account.clone().into_bytes()).expect("get_hash shouldn't fail");
-        self.account = encrypt(None, account).expect("ACCOUNT ENCRYPTION FAILED");
-
-        self.clone()
-    }
-
-    pub fn set_mutation(&mut self, hash: String) -> Self {
-        self.mutation_of = hash;
-
-        self.clone()
-    }
-
-    pub fn set_account_hash(&mut self, hash: String) -> Self {
-        self.account_hash = hash;
-
-        self.clone()
-    }
-
-    pub fn set_keys(&mut self, key_map: String) -> Self {
-        if let Ok(m) = serde_json::from_str::<HashMap<String, String>>(&key_map) {
-            self.keys = m;
-        }
-
-        self.clone()
-    }
-}
-
-#[wasm_bindgen]
-pub async fn add_one_time_keys(params: OtkUpdateParams) -> Option<String> {
-    authenticated(move |_: EnigmatickState, profile: Profile| async move {
-        let username = profile.username;
-        let url = format!("/api/user/{username}/otk");
-
-        let data = serde_json::to_string(&params).unwrap();
-        log(&format!("{data:#?}"));
-        send_post(url, data, "application/json".to_string()).await
-    })
-    .await
-}
-
 pub async fn update_instruments(packages: Vec<ApInstrument>) -> Option<String> {
     authenticated(move |_: EnigmatickState, profile: Profile| async move {
         let collection: ApCollection = packages.into();
@@ -397,7 +316,7 @@ pub async fn update_instruments(packages: Vec<ApInstrument>) -> Option<String> {
         let url = format!("/user/{username}");
 
         let data = serde_json::to_string(&collection).unwrap();
-        log(&format!("{data:#?}"));
+        //log(&format!("{data:#?}"));
         send_post(url, data, "application/activity+json".to_string()).await
     })
     .await

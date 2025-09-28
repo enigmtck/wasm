@@ -10,7 +10,7 @@ pub async fn send_delete(object: String) -> bool {
 
         let delete = ApDelete::new(object, state.profile?.id);
 
-        log(&format!("DELETE\n{delete:#?}"));
+        //log(&format!("DELETE\n{delete:#?}"));
         send_post(
             outbox,
             serde_json::to_string(&delete).unwrap(),

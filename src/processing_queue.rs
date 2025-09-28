@@ -21,7 +21,7 @@ pub struct QueueAction {
 
 #[wasm_bindgen]
 pub async fn resolve_processed_item(id: String) -> Option<String> {
-    log("IN resolve_processed_item");
+    //log("IN resolve_processed_item");
 
     authenticated(
         move |_state: EnigmatickState, profile: Profile| async move {
@@ -45,7 +45,7 @@ pub async fn resolve_processed_item(id: String) -> Option<String> {
 
 #[wasm_bindgen]
 pub async fn get_processing_queue() -> Option<String> {
-    log("IN get processing_queue");
+    //log("IN get processing_queue");
 
     authenticated(
         move |_state: EnigmatickState, profile: Profile| async move {

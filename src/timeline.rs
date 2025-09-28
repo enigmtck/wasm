@@ -40,13 +40,13 @@ pub async fn get_timeline(
     view: String,
     hashtags: JsValue,
 ) -> Option<String> {
-    log("IN get_timeline");
+    //log("IN get_timeline");
     let state = get_state();
 
     let hashtags: Vec<String> = serde_wasm_bindgen::from_value(hashtags).unwrap_or_default();
     let hashtags = convert_hashtags_to_query_string(&hashtags);
 
-    log(&hashtags);
+    //log(&hashtags);
 
     let position = {
         if let Some(max) = max {
@@ -110,16 +110,16 @@ pub async fn get_timeline(
     ) -> Result<Vec<ApInstrument>> {
         let mut instruments = vec![];
 
-        log(&format!("Setting up GroupJoinConfig"));
+        //log(&format!("Setting up GroupJoinConfig"));
         let group_join_config_builder =
             MlsGroupJoinConfig::builder().use_ratchet_tree_extension(true);
         let group_join_config = group_join_config_builder.build();
 
-        log(&format!("Setting up StagedJoin"));
+        //log(&format!("Setting up StagedJoin"));
         let staged_join =
             StagedWelcome::new_from_welcome(provider, &group_join_config, welcome, None)?;
 
-        log(&format!("Creating MlsGroup"));
+        //log(&format!("Creating MlsGroup"));
         let group = staged_join
             .into_group(provider)
             .map_err(anyhow::Error::msg)?;
@@ -156,15 +156,15 @@ pub async fn get_timeline(
             match message.into_content() {
                 ProcessedMessageContent::ApplicationMessage(message) => {
                     let message: String = String::from_utf8(message.into_bytes()).unwrap();
-                    log(&format!("Re-encrypting MlsMessage: {message}"));
+                    //log(&format!("Re-encrypting MlsMessage: {message}"));
                     let mut instrument = ApInstrument::try_from((message, ENCRYPT_FN))?;
                     instrument.activity = create.id;
                     Ok(instrument)
                 }
                 _ => {
-                    log(&format!(
-                        "Unable to transform private ProcessedMessage into_content"
-                    ));
+                    //log(&format!(
+                    //    "Unable to transform private ProcessedMessage into_content"
+                    //));
                     Err(anyhow!("Unable to create Instrument"))
                 }
             }
@@ -226,20 +226,20 @@ pub async fn get_timeline(
     ) -> Option<Vec<ApInstrument>> {
         find_group_instrument(&create)
             .and_then(|instrument| {
-                log(&format!("Found MlsGroup instrument\n{instrument:#?}"));
+                //log(&format!("Found MlsGroup instrument\n{instrument:#?}"));
                 let group_id = GroupId::try_from(instrument).ok()?;
                 let group = MlsGroup::load(provider.storage(), &group_id).ok()??;
                 use_group(provider, create.clone(), note.clone(), group).ok()
             })
             .or_else(|| {
                 find_welcome_instrument(&create).and_then(|instrument| {
-                    log(&format!("Found Welcome instrument\n{instrument:#?}"));
+                    //log(&format!("Found Welcome instrument\n{instrument:#?}"));
                     if let Some(group_id) = groups.get(note.conversation.clone()?.as_str()) {
-                        log(&format!("Found previously processed GroupId"));
+                        //log(&format!("Found previously processed GroupId"));
                         let group = MlsGroup::load(provider.storage(), &group_id).ok()??;
                         use_group(provider, create, note, group).ok()
                     } else {
-                        log(&format!("Creating new MlsGroup"));
+                        //log(&format!("Creating new MlsGroup"));
                         let welcome = Welcome::try_from(instrument).ok()?;
                         create_group(provider, welcome, create, note, groups).ok()
                     }
@@ -302,24 +302,24 @@ pub async fn get_timeline(
         if let Some((_credentials_key_pair, mut provider, mutation_of)) =
             retrieve_credentials().await.ok()
         {
-            log(&format!(
-                "Provider Hash (before mutation): {mutation_of:#?}"
-            ));
+            //log(&format!(
+            //    "Provider Hash (before mutation): {mutation_of:#?}"
+            //));
 
             let instruments = process_encrypted_notes(&mut provider)
                 .await
                 .unwrap_or_default();
 
-            log(&format!(
-                "Instruments from processed encrypted_notes\n{instruments:#?}"
-            ));
+            //log(&format!(
+            //    "Instruments from processed encrypted_notes\n{instruments:#?}"
+            //));
 
             update_instruments(instruments).await;
         }
     }
 
     if state.authenticated {
-        log("IN authenticated");
+        //log("IN authenticated");
         authenticated(
             move |_state: EnigmatickState, profile: Profile| async move {
                 let username = profile.username;
@@ -360,7 +360,7 @@ pub async fn get_timeline(
         )
         .await
     } else {
-        log("IN NOT authenticated");
+        //log("IN NOT authenticated");
         let object: ApCollection = get_object(
             format!("/inbox?limit={limit}{position}&view=global{hashtags}"),
             None,

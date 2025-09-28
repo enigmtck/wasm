@@ -10,7 +10,7 @@ pub async fn send_announce(object: String) -> Option<String> {
 
         let announce = ApAnnounce::new(object, state.profile?.id, None);
 
-        log(&format!("ANNOUNCE\n{announce:#?}"));
+        //log(&format!("ANNOUNCE\n{announce:#?}"));
         send_post(
             outbox,
             serde_json::to_string(&announce).unwrap(),
@@ -28,7 +28,7 @@ pub async fn send_unannounce(object: String, id: String) -> Option<String> {
 
         let undo: ApUndo = ApAnnounce::new(object, state.profile?.id, Some(id)).into();
 
-        log(&format!("UNANNOUNCE\n{undo:#?}"));
+        //log(&format!("UNANNOUNCE\n{undo:#?}"));
         send_post(
             outbox,
             serde_json::to_string(&undo).unwrap(),

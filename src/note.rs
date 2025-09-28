@@ -15,7 +15,7 @@ use crate::{
 
 impl SendParams {
     pub async fn to_note(&mut self) -> ApNote {
-        log(&format!("params\n{self:#?}"));
+        //log(&format!("params\n{self:#?}"));
         let state = get_state();
         let mut encrypted = false;
 
@@ -82,7 +82,7 @@ impl SendParams {
 
             if to.len() == 1 && cc.is_empty() {
                 if let Some((address, enigmatick)) = to.first() {
-                    log(&format!("Sending to single address : {address}"));
+                    //log(&format!("Sending to single address : {address}"));
                     encrypted = *enigmatick;
                     if encrypted {
                         encrypt_note(self).await.unwrap();
@@ -141,32 +141,6 @@ impl SendParams {
         }
     }
 }
-
-// impl Default for ApNote {
-//     fn default() -> ApNote {
-//         ApNote {
-//             context: Some(ApContext::default()),
-//             tag: MaybeMultiple::None,
-//             attributed_to: ApAddress::default(),
-//             id: None,
-//             kind: ApNoteType::Note,
-//             to: MaybeMultiple::Multiple(vec![]),
-//             url: None,
-//             published: Utc::now().format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string(),
-//             cc: MaybeMultiple::None,
-//             replies: None,
-//             attachment: MaybeMultiple::None,
-//             in_reply_to: None,
-//             content: String::new(),
-//             summary: None,
-//             sensitive: None,
-//             conversation: None,
-//             content_map: None,
-//             instrument: None,
-//             ephemeral: None,
-//         }
-//     }
-// }
 
 #[wasm_bindgen]
 pub async fn get_local_conversation(uuid: String) -> Option<String> {
@@ -336,7 +310,7 @@ pub async fn encrypt_note(params: &mut SendParams) -> Result<()> {
         create_mls_group(params).await?;
     };
 
-    log(&format!("Params\n{params:#?}"));
+    //log(&format!("Params\n{params:#?}"));
 
     Ok(())
 }
@@ -359,6 +333,41 @@ pub async fn send_note(params: &mut SendParams) -> Option<String> {
         send_post(
             outbox,
             serde_json::to_string(&note).unwrap(),
+            "application/activity+json".to_string(),
+        )
+        .await
+    })
+    .await
+}
+
+#[wasm_bindgen]
+pub async fn send_vote(option_name: String, question_id: String, question_author: String) -> Option<String> {
+    authenticated(move |state: EnigmatickState, profile: Profile| async move {
+        let outbox = format!("/user/{}/outbox", profile.username.clone());
+
+        let actor_id = format!(
+            "{}/user/{}",
+            state.server_url.unwrap(),
+            profile.username.clone()
+        );
+
+        // Create a vote note according to Mastodon's ActivityPub specification
+        let vote_note = ApNote {
+            context: Some(ApContext::default()),
+            kind: ApNoteType::Note,
+            name: Some(option_name.clone()),
+            content: None,
+            attributed_to: actor_id.into(),
+            to: vec![question_author.into()].into(),
+            in_reply_to: MaybeMultiple::Single(MaybeReference::Reference(question_id)),
+            ..Default::default()
+        };
+
+        log(&format!("VOTE NOTE\n{}", serde_json::to_string(&vote_note).unwrap()));
+
+        send_post(
+            outbox,
+            serde_json::to_string(&vote_note).unwrap(),
             "application/activity+json".to_string(),
         )
         .await

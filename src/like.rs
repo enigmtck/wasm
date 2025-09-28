@@ -16,7 +16,7 @@ pub async fn send_like(to: String, object: String) -> Option<String> {
             None,
         );
 
-        log(&format!("LIKE\n{like:#?}"));
+        //log(&format!("LIKE\n{like:#?}"));
         send_post(
             outbox,
             serde_json::to_string(&like).unwrap(),
@@ -40,7 +40,7 @@ pub async fn send_unlike(to: String, object: String, id: String) -> Option<Strin
         );
         let undo: ApUndo = like.into();
 
-        log(&format!("UNLIKE\n{undo:#?}"));
+        //log(&format!("UNLIKE\n{undo:#?}"));
         send_post(
             outbox,
             serde_json::to_string(&undo).unwrap(),

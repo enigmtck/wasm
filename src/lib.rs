@@ -29,7 +29,6 @@ pub mod keystore;
 pub mod like;
 pub mod mls;
 pub mod note;
-pub mod olm;
 pub mod outbox;
 pub mod processing_queue;
 pub mod session;
@@ -52,7 +51,6 @@ pub use instance::*;
 pub use keystore::*;
 pub use like::*;
 pub use note::*;
-pub use olm::*;
 pub use outbox::*;
 pub use processing_queue::*;
 pub use session::*;
@@ -447,7 +445,7 @@ pub async fn upload_file(
     .await
     {
         if let Ok(attachment) = serde_json::from_str::<ApAttachment>(&resp) {
-            log(&format!("upload completed\n{attachment:#?}"));
+            //log(&format!("upload completed\n{attachment:#?}"));
             Some(serde_json::to_string(&attachment).unwrap())
         } else {
             None
