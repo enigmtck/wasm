@@ -375,6 +375,24 @@ pub async fn send_vote(option_name: String, question_id: String, question_author
     .await
 }
 
+#[wasm_bindgen]
+pub async fn send_question(question_json: String) -> Option<String> {
+    authenticated(move |state: EnigmatickState, profile: Profile| async move {
+        let outbox = format!("/user/{}/outbox", profile.username.clone());
+
+        log(&format!("QUESTION JSON\n{}", question_json));
+
+        // Send just the Question object - server will wrap it in a Create Activity
+        send_post(
+            outbox,
+            question_json,
+            "application/activity+json".to_string(),
+        )
+        .await
+    })
+    .await
+}
+
 // #[wasm_bindgen]
 // pub async fn send_encrypted_note(params: SendParams) -> bool {
 //     authenticated(move |state: EnigmatickState, profile: Profile| async move {
