@@ -20,6 +20,7 @@ use gloo_net::http::Request;
 
 pub mod actor;
 pub mod announce;
+pub mod chess;
 pub mod crypto;
 pub mod delete;
 pub mod follow;
@@ -43,6 +44,7 @@ pub mod cache;
 
 pub use actor::*;
 pub use announce::*;
+pub use chess::*;
 pub use crypto::*;
 pub use delete::*;
 pub use follow::*;
