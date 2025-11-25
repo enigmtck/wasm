@@ -44,7 +44,7 @@ openmls = { version = "0.6.0", features = ["js", "openmls_rust_crypto"] }
 openmls_rust_crypto = "0.3.0"
 openmls_basic_credential = { version = "0.3.0", features = ["clonable"] }
 serde_with = "3.12.0"
-jdt_activity_pub = "0.2.76"
+jdt_activity_pub = "0.2.79"
 #jdt_activity_pub = { path = "../../../../libs/activity_pub" }
 
 [target.'cfg(target_arch = "wasm32")'.dependencies]

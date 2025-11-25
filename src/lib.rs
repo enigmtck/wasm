@@ -36,6 +36,7 @@ pub mod session;
 pub mod state;
 pub mod stream;
 pub mod timeline;
+pub mod update;
 pub mod user;
 pub mod vault;
 
@@ -59,6 +60,7 @@ pub use session::*;
 pub use state::*;
 pub use stream::*;
 pub use timeline::*;
+pub use update::*;
 pub use user::*;
 pub use vault::*;
 

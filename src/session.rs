@@ -1,5 +1,5 @@
 use crate::{
-    get_hash, get_mls_keys, get_remote_keys, get_state, SendParams, DECRYPT_FN, ENCRYPT_FN, HASH_FN,
+    get_hash, get_mls_keys, get_remote_keys, get_state, NoteParams, DECRYPT_FN, ENCRYPT_FN, HASH_FN,
 };
 use crate::{get_key, log, send_get};
 use anyhow::{anyhow, Result};
@@ -50,7 +50,7 @@ pub async fn retrieve_credentials() -> Result<(CredentialKeyPair, OpenMlsRustCry
     Ok((credentials, provider, mutation_of))
 }
 
-pub async fn create_mls_group(params: &mut SendParams) -> Result<()> {
+pub async fn create_mls_group(params: &mut NoteParams) -> Result<()> {
     let (credentials, provider, mutation_of) = retrieve_credentials().await?;
 
     let mut key_packages: Vec<KeyPackage> = vec![];
